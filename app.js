@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "16";
+const BASEER_VERSION = "17";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -26,7 +26,19 @@ const BASEER_VERSION = "16";
     geminiKey: store.get("geminiKey", "")          // free key from aistudio.google.com
   };
   // Free mode: Google Gemini hears the voice and sees the photo. Otherwise Claude (paid key).
-  const useGemini = () => !!settings.geminiKey;
+  // Baseer's shared free server: holds the Gemini key so nobody needs their own.
+  const SHARED_SERVER = "https://lqpowhbcooulrsyotpzx.supabase.co/functions/v1/baseer";
+  const useGemini = () => true; // own key if set, otherwise the shared server
+  /** Where to send a Gemini request, and with which headers. */
+  function geminiEndpoint(model, stream) {
+    if (settings.geminiKey) {
+      return {
+        url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:` + (stream ? "streamGenerateContent?alt=sse" : "generateContent"),
+        headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey }
+      };
+    }
+    return { url: `${SHARED_SERVER}?model=${encodeURIComponent(model)}&mode=${stream ? "stream" : "once"}`, headers: { "content-type": "application/json" } };
+  }
   const hasAI = () => useGemini() || !!settings.key;
 
   // Languages Baseer can see and speak in. speech = recognition locale.
@@ -375,9 +387,10 @@ const BASEER_VERSION = "16";
 
   /** Free natural voice from Google (Gemini text-to-speech), returned as a WAV the page can play. */
   async function fetchGeminiAudio(text) {
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent", {
+    const ep = geminiEndpoint("gemini-3.8-flash-lite-tts", false);
+    const res = await fetch(ep.url, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
+      headers: ep.headers,
       body: JSON.stringify({
         contents: [{ parts: [{ text }] }],
         generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }
@@ -698,9 +711,10 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       const generationConfig = { maxOutputTokens: maxTokens, temperature: 0.4 };
       if (fast) generationConfig.thinkingConfig = { thinkingLevel: "minimal" }; // answer straight away
       try {
-        return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
+        const ep = geminiEndpoint(model, true);
+        return await fetch(ep.url, {
           method: "POST", signal: ownSignal,
-          headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
+          headers: ep.headers,
           body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt() }] }, contents: [{ role: "user", parts }], generationConfig })
         });
       } catch (e) {
