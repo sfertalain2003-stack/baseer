@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "15";
+const BASEER_VERSION = "16";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -337,10 +337,16 @@ const BASEER_VERSION = "15";
       stopListening();
       return elevenSpeak(text, queue);
     }
+    // Free Google voice: used when Safari won't let the phone voice talk (no touch yet), or there is no phone voice.
+    if (useGemini() && (synthBlocked || !synth)) {
+      stopListening();
+      return elevenSpeak(text, queue, fetchGeminiAudio);
+    }
     if (!synth) { $("reply").textContent = text; return; }
     stopListening(); // never let the mic hear Baseer's own voice
     if (!queue) synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
+    u.onstart = () => { u.started = true; };
     u.lang = voiceLangFor(text);
     const voice = pickVoice(u.lang);
     if (voice) u.voice = voice;
@@ -352,6 +358,44 @@ const BASEER_VERSION = "15";
     speakingUntilIdle = true;
     speechStartedAt = Date.now();
     synth.speak(u);
+    // Opened with no touch? Safari may silently refuse the phone voice: switch to the Google voice.
+    if (!queue && !touchedOnce && useGemini()) {
+      setTimeout(() => {
+        if (u.started || !liveUtterances.has(u)) return;
+        debug("phone voice blocked without a touch, using the Google voice");
+        synthBlocked = true;
+        liveUtterances.clear();
+        synth.cancel();
+        elevenSpeak(text, false, fetchGeminiAudio);
+      }, 1000);
+    }
+  }
+  let synthBlocked = false, touchedOnce = false;
+  document.addEventListener("pointerdown", () => { touchedOnce = true; synthBlocked = false; }, { capture: true });
+
+  /** Free natural voice from Google (Gemini text-to-speech), returned as a WAV the page can play. */
+  async function fetchGeminiAudio(text) {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite-tts:generateContent", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text }] }],
+        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }
+      })
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    const part = data.candidates[0].content.parts.find(p => p.inlineData).inlineData;
+    const bytes = Uint8Array.from(atob(part.data), c => c.charCodeAt(0));
+    if (/wav/i.test(part.mimeType)) return new Blob([bytes], { type: "audio/wav" });
+    // Raw 16-bit PCM (e.g. "audio/L16;rate=24000"): add a WAV header.
+    const rate = Number((part.mimeType.match(/rate=(\d+)/) || [])[1]) || 24000;
+    const head = new DataView(new ArrayBuffer(44));
+    const str = (o, txt) => { for (let i = 0; i < txt.length; i++) head.setUint8(o + i, txt.charCodeAt(i)); };
+    str(0, "RIFF"); head.setUint32(4, 36 + bytes.length, true); str(8, "WAVE"); str(12, "fmt ");
+    head.setUint32(16, 16, true); head.setUint16(20, 1, true); head.setUint16(22, 1, true); head.setUint32(24, rate, true);
+    head.setUint32(28, rate * 2, true); head.setUint16(32, 2, true); head.setUint16(34, 16, true); str(36, "data"); head.setUint32(40, bytes.length, true);
+    return new Blob([head.buffer, bytes], { type: "audio/wav" });
   }
   const liveUtterances = new Set();
   let speechStartedAt = 0;
@@ -409,10 +453,10 @@ const BASEER_VERSION = "15";
       player.play().catch(() => resolve());
     });
   }
-  function elevenSpeak(text, queue) {
+  function elevenSpeak(text, queue, fetcher = fetchElevenAudio) {
     if (!queue) stopSpeaking();
     const gen = elevenGen;
-    const audio = fetchElevenAudio(text); // starts downloading now, plays in order
+    const audio = fetcher(text); // starts downloading now, plays in order
     elevenBusy++;
     speakingUntilIdle = true;
     elevenQueue = elevenQueue
@@ -420,6 +464,13 @@ const BASEER_VERSION = "15";
       .then(blob => playBlob(blob, gen))
       .catch(() => {
         if (gen !== elevenGen) return;
+        if (fetcher !== fetchElevenAudio) { // Google voice failed: try the phone voice
+          synthBlocked = false; elevenBusy = 0;
+          const engine = settings.voiceEngine; settings.voiceEngine = "system";
+          speak(text, { queue: true });
+          settings.voiceEngine = engine;
+          return;
+        }
         // Fall back to the phone voice so the user still hears the answer.
         settings.voiceEngine = "system";
         const fallback = elevenWarned ? text : t().v.elevenFailed + " " + text;

@@ -1,6 +1,6 @@
 // Always fetch the newest Baseer from the internet; use the saved copy only when offline.
-const CACHE = "baseer-v15";
-const SHELL = ["./", "index.html", "app.js?v=15", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+const CACHE = "baseer-v16";
+const SHELL = ["./", "index.html", "app.js?v=16", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
