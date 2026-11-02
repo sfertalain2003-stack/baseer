@@ -17,7 +17,7 @@
     trustedPhone: store.get("trustedPhone", ""),
     handsFree: store.get("handsFree", true),
     voiceName: store.get("voiceName", ""),   // chosen by the user; empty = best available
-    rate: store.get("rate", 1),
+    rate: store.get("rate", 0.9), // a little slower is easier to follow
     voiceEngine: store.get("voiceEngine", "system"), // "system" (free) or "eleven" (natural, every language)
     elevenKey: store.get("elevenKey", ""),
     elevenVoiceId: store.get("elevenVoiceId", ""),
@@ -51,9 +51,9 @@
     ar: {
       appName: "بصير", startText: "اضغط في أي مكان عشان أبدأ أتكلم معك",
       camOn: "الكاميرا شغالة", camOff: "الكاميرا مقفلة", micOn: "أسمعك", micOff: "الميكروفون طافي",
-      describe: "اوصف لي", describeHint: "اضغط أو قل:<b>بصير، صوّر</b>", looking: "أشوف…",
+      describe: "اوصف لي", describeHint: "اضغط أو قل:<b>ما هذا؟</b>", looking: "أشوف…",
       readTile: "اقرأ نصاً", askTile: "شو جدامي؟", colorTile: "الألوان", askLabel: "سؤالك عن المكان", askBtn: "اسأل", askPh: "مثلاً: وين الباب؟",
-      lastLabel: "آخر وصف:", idle: "قل «بصير، صوّر» وأقول لك شو قدامك.",
+      lastLabel: "آخر وصف:", idle: "تكلّم، أنا أسمعك. قول: ما هذا؟",
       tabHome: "الرئيسية", tabRead: "اقرأ", tabNav: "تنقل", tabSafety: "الأمان",
       readText: "اقرأ النص", readSub: "لوحات، أوراق، قوائم طعام", translate: "ترجم", translateSub: "يترجم النص اللي جدامك",
       money: "كم الفلوس؟", moneySub: "يعرف الأوراق النقدية ويجمعها", colors: "الألوان", colorsSub: "لون الشي أو الملابس",
@@ -74,7 +74,8 @@
       privacyNote: "الصور تُرسل إلى Claude من Anthropic للتحليل فقط ولا تُحفظ. مفتاحك وأماكنك تبقى على جوالك.",
       langName: "Arabic (clear Modern Standard Arabic that sounds natural to an Emirati listener)", caution: "انتبه:",
       v: {
-        welcome: "أهلاً، أنا بصير، عيونك. قل: بصير، صوّر. وأنا أصوّر وأقول لك شو قدامك.",
+        welcome: "أهلاً، أنا بصير. تكلّم وأنا أسمعك. قول مثلاً: ما هذا؟",
+        tapToTalk: "إذا ما سمعتك، المس الشاشة وتكلّم.",
         voiceSample: (n, i, total) => `هذا صوت رقم ${i} من ${total}${n ? "، اسمه " + n : ""}. إذا عجبك قل: بصير، خلاص. وإذا تبي غيره قل: بصير، غيّر الصوت.`,
         voiceKept: "تمام، بخلي هذا الصوت.", noVoices: "ما لقيت أصوات ثانية على هذا الجوال. تقدر تنزل أصوات من إعدادات الجوال.",
         faster: "صرت أتكلم أسرع.", slower: "صرت أتكلم أبطأ.",
@@ -132,7 +133,8 @@
       privacyNote: "Photos are sent to Anthropic's Claude for analysis only and aren't stored. Your key and places stay on your phone.",
       langName: "English", caution: "Caution:",
       v: {
-        welcome: "Hi, I'm Baseer, your eyes. Say: Baseer, take a picture. I'll take one and tell you what's in front of you.",
+        welcome: "Hi, I'm Baseer. Just talk, I'm listening. For example, say: what is this?",
+        tapToTalk: "If I don't hear you, touch the screen and speak.",
         voiceSample: (n, i, total) => `This is voice ${i} of ${total}${n ? ", called " + n : ""}. If you like it, say: Baseer, keep it. For another, say: Baseer, change voice.`,
         voiceKept: "OK, I'll keep this voice.", noVoices: "There are no other voices on this phone. You can download more in your phone's settings.",
         faster: "I'm speaking faster now.", slower: "I'm speaking slower now.",
@@ -323,6 +325,7 @@
   function afterSpeech() {
     if (isSpeaking()) return;
     speakingUntilIdle = false;
+    cueNext = true;
     if (!busy) startListening();
   }
   function stopSpeaking() {
@@ -496,7 +499,7 @@
   // ---------- Claude ----------
   function systemPrompt() {
     const L = t();
-    return `You are Baseer (بصير), the eyes of a blind or low-vision person. The photo was just taken by their phone camera, pointing roughly where they face. Your reply is read aloud, so write plain short sentences only: no lists, no markdown, no emojis, no symbols.
+    return `You are Baseer (بصير), the eyes of a blind or low-vision person. The photo was just taken by their phone camera, pointing roughly where they face. Your reply is read aloud, so write plain short sentences in simple, clear, everyday words: no lists, no markdown, no emojis, no symbols.
 
 Always reply in ${L.langName}.
 
@@ -796,9 +799,9 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     ["repeat", ["كرر", "عيدها", "اعدها", "repeat", "again"]],
     ["translate", ["ترجم", "translate"]],
     ["read", ["اقرا", "قراءه", "شو مكتوب", "وش مكتوب", "read"]],
-    ["describe", ["صور", "التقط", "شوف", "take a picture", "take a photo", "look", "اوصف", "وصف", "صف لي", "صفلي", "جدام", "قدام", "امامي", "المكان", "حولي", "شو تشوف", "describe", "in front", "what do you see"]]
+    ["describe", ["ما هذا", "شو هذا", "وش هذا", "ايش هذا", "شو هذي", "ما هذه", "صور", "التقط", "شوف", "take a picture", "take a photo", "look", "اوصف", "وصف", "صف لي", "صفلي", "جدام", "قدام", "امامي", "المكان", "حولي", "شو تشوف", "describe", "in front", "what do you see"]]
   ];
-  const INSTANT = new Set(["nextVoice", "faster", "slower", "describe", "read", "translate", "money", "color", "repeat", "where", "walkStart", "walkStop"]);
+  const INSTANT = new Set(["nextVoice", "faster", "slower", "read", "translate", "money", "color", "repeat", "where", "walkStart", "walkStop"]);
 
   function parse(raw) {
     const text = normalize(raw);
@@ -836,11 +839,8 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (command !== null && trialVoiceUntil > Date.now() && /^(خلاص|تمام|عجبني|ok|keep)/.test(command)) {
       trialVoiceUntil = 0; speak(t().v.voiceKept); return;
     }
-    if (command === null) {
-      if (!awaiting) return; // other people talking: ignore
-      command = raw;
-    }
-    if (!command) { awaitingCommandUntil = Date.now() + 8000; vibrate(40); speak(t().v.yes); return; }
+    if (command === null) command = raw; // no wake word needed: Baseer has one listener
+    if (!command.trim()) { vibrate(40); speak(t().v.yes); return; }
     run(parse(command));
   }
 
@@ -873,8 +873,31 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     }
   }
 
-  function startListening() {
+  let needTapToListen = false, cueNext = false, audioCtx = null;
+  /** Short soft tone: "I'm listening, go ahead". */
+  function listenCue() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.08;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.12);
+    } catch {}
+  }
+  /** Asks for the microphone inside the first touch (iPhone needs this). */
+  function primeMic() {
+    if (!SR) return;
+    try {
+      const r = new SR();
+      r.lang = langInfo(settings.lang).speech;
+      r.onstart = () => { try { r.abort(); } catch {} };
+      r.onerror = () => {};
+      r.start();
+    } catch {}
+  }
+  function startListening(fromTap = false) {
     if (!SR || !settings.handsFree || listening || busy || speakingUntilIdle || isSpeaking()) return;
+    if (needTapToListen && !fromTap) return;
     recognition = new SR();
     recognition.lang = langInfo(settings.lang).speech;
     recognition.continuous = true;
@@ -883,17 +906,24 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const text = e.results[i][0].transcript;
         if (e.results[i].isFinal) { handleHeard(text); continue; }
-        // Act the moment a full command is heard, e.g. «بصير اوصفلي».
+        // Act the moment a full command is heard, e.g. «صوّر» or «ما هذا».
         const rest = afterWake(text);
-        const intent = rest ? parse(rest) : null;
+        const intent = parse(rest === null ? text : rest);
         if (intent && intent.type === "cmd" && INSTANT.has(intent.cmd)) { handleHeard(text); stopListening(); return; }
       }
     };
     recognition.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") { settings.handsFree = false; speak(t().v.noMic); updateChips(); }
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        if (!needTapToListen) speak(t().v.tapToTalk);
+        needTapToListen = true;
+        updateChips();
+      }
     };
     recognition.onend = () => { listening = false; updateChips(); setTimeout(startListening, 400); };
-    try { recognition.start(); listening = true; } catch { listening = false; }
+    try {
+      recognition.start(); listening = true;
+      if (cueNext || fromTap) { listenCue(); vibrate(30); cueNext = false; }
+    } catch { listening = false; }
     updateChips();
   }
   function stopListening() {
@@ -994,6 +1024,8 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (started) return;
     started = true;
     unlockAudio();
+    primeMic();
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
     const V = t().v;
     speak(V.welcome);
     requestWakeLock();
@@ -1001,6 +1033,13 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (!settings.key) speak(V.needKey, { queue: true });
   }
   document.addEventListener("pointerdown", startBaseer, { capture: true });
+  // Touching the screen (outside a button) starts listening right away.
+  $("app").addEventListener("click", (e) => {
+    if (!started || e.target.closest("button, input, select, label, form")) return;
+    stopSpeaking();
+    speakingUntilIdle = false;
+    startListening(true);
+  });
   document.addEventListener("click", startBaseer, { capture: true });
   $("describeBtn").addEventListener("click", () => lookAndSay("describe"));
   document.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
