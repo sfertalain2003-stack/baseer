@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "12";
+const BASEER_VERSION = "13";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -643,12 +643,12 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   /** Streams a Gemini reply. parts: Gemini content parts (image, audio, text). */
   async function geminiStream(parts, { onText = null, signal, maxTokens = 1500 } = {}) {
     let res = null, lastStatus = 0;
-    const attempt = async (model, fast) => {
+    const attempt = async (model, fast, ownSignal = signal) => {
       const generationConfig = { maxOutputTokens: maxTokens, temperature: 0.4 };
       if (fast) generationConfig.thinkingConfig = { thinkingLevel: "minimal" }; // answer straight away
       try {
         return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
-          method: "POST", signal,
+          method: "POST", signal: ownSignal,
           headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
           body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt() }] }, contents: [{ role: "user", parts }], generationConfig })
         });
@@ -656,8 +656,39 @@ Give directions relative to the user: ahead, to your left, to your right, about 
         throw { code: e && e.name === "AbortError" ? "cancelled" : "network" };
       }
     };
+    /**
+     * The free service sometimes stalls for 10+ seconds. If the first request hasn't
+     * answered within 3 seconds, send the same request again and keep whichever answers first.
+     */
+    const raced = async (model) => {
+      const runners = [];
+      const start = () => {
+        const ctl = new AbortController();
+        if (signal) signal.addEventListener("abort", () => ctl.abort(), { once: true });
+        const p = attempt(model, true, ctl.signal).then(r => { if (!r.ok) throw r; return { r, ctl }; });
+        runners.push({ p, ctl });
+        return p;
+      };
+      const first = start();
+      const backup = new Promise((resolve, reject) => setTimeout(() => {
+        if (winner) return reject("not needed");
+        debug("slow answer, sending a second request");
+        start().then(resolve, reject);
+      }, 3000));
+      let winner = null;
+      try {
+        winner = await Promise.any([first, backup]);
+      } catch (e) {
+        const errs = (e && e.errors) || [];
+        const failed = errs.find(x => x && typeof x.status === "number");
+        if (errs.some(x => x && x.code === "cancelled")) throw { code: "cancelled" };
+        return failed || { ok: false, status: 0 };
+      }
+      runners.forEach(x => { if (x.ctl !== winner.ctl) x.ctl.abort(); }); // drop the slower one
+      return winner.r;
+    };
     for (const model of GEMINI_MODELS) {
-      res = await attempt(model, true);
+      res = model === GEMINI_MODELS[0] ? await raced(model) : await attempt(model, true);
       if (res.status === 400) res = await attempt(model, false); // model without the fast setting
       if (res.ok) break;
       lastStatus = res.status;
@@ -739,7 +770,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     debug(`wav ready, camera ${stream ? "on" : "off"}`);
     setBusy(true);
     controller = new AbortController();
-    const frame = stream ? await captureForAI(1280) : null;
+    const frame = stream ? await captureForAI(960) : null; // smaller photo = faster upload
     const instruction =
 `The audio is the user speaking to you. First write exactly one line in this form:
 HEARD [two-letter language code]: what they said, in their own words
@@ -1203,7 +1234,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
       const threshold = Math.max(0.015, mic.floor * 2.2);
       if (level > threshold) mic.quietSince = 0;
       else if (!mic.quietSince) mic.quietSince = now;
-      const pausedLongEnough = mic.quietSince && now - mic.quietSince > 900;
+      const pausedLongEnough = mic.quietSince && now - mic.quietSince > 650;
       if (pausedLongEnough || now - mic.since > 12000) stopRecording();
     }
   }
