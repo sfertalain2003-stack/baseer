@@ -76,6 +76,8 @@
       v: {
         welcome: "أهلاً، أنا بصير. تكلّم وأنا أسمعك. قول مثلاً: ما هذا؟",
         tapToTalk: "إذا ما سمعتك، المس الشاشة وتكلّم.",
+        sttFailed: "ما قدرت أفهم الكلام، عيده مرة ثانية.", sttKey: "مفتاح ElevenLabs ما يشتغل، فما أقدر أسمعك.",
+        micSilent: "الميكروفون ما يوصلني صوت. اسمح لـ Safari بالميكروفون من الإعدادات.",
         voiceSample: (n, i, total) => `هذا صوت رقم ${i} من ${total}${n ? "، اسمه " + n : ""}. إذا عجبك قل: بصير، خلاص. وإذا تبي غيره قل: بصير، غيّر الصوت.`,
         voiceKept: "تمام، بخلي هذا الصوت.", noVoices: "ما لقيت أصوات ثانية على هذا الجوال. تقدر تنزل أصوات من إعدادات الجوال.",
         faster: "صرت أتكلم أسرع.", slower: "صرت أتكلم أبطأ.",
@@ -135,6 +137,8 @@
       v: {
         welcome: "Hi, I'm Baseer. Just talk, I'm listening. For example, say: what is this?",
         tapToTalk: "If I don't hear you, touch the screen and speak.",
+        sttFailed: "I couldn't understand that, please say it again.", sttKey: "The ElevenLabs key isn't working, so I can't hear you.",
+        micSilent: "The microphone isn't sending me any sound. Allow Safari to use the microphone in Settings.",
         voiceSample: (n, i, total) => `This is voice ${i} of ${total}${n ? ", called " + n : ""}. If you like it, say: Baseer, keep it. For another, say: Baseer, change voice.`,
         voiceKept: "OK, I'll keep this voice.", noVoices: "There are no other voices on this phone. You can download more in your phone's settings.",
         faster: "I'm speaking faster now.", slower: "I'm speaking slower now.",
@@ -293,10 +297,18 @@
     return null;
   }
   /** Voice language for a piece of text: the app language, unless the text is clearly Arabic or Latin script. */
+  /** Language of the current conversation: the one the user just spoke, else the app language. */
+  let replyLang = null;
+  const activeLang = () => replyLang || settings.lang;
+  // ElevenLabs reports ISO 639-3 codes; map them to Baseer's language codes.
+  const ISO3 = { ara: "ar", eng: "en", fra: "fr", spa: "es", deu: "de", ita: "it", por: "pt", nld: "nl", rus: "ru", tur: "tr",
+    fas: "fa", pes: "fa", urd: "ur", hin: "hi", ben: "bn", mal: "ml", tam: "ta", ind: "id", msa: "ms", zsm: "ms", fil: "fil",
+    tgl: "fil", swa: "sw", zho: "zh", cmn: "zh", yue: "zh", jpn: "ja", kor: "ko" };
+
   function voiceLangFor(text) {
-    const app = langInfo(settings.lang).speech;
-    if (/[\u0600-\u06FF]/.test(text) && !["fa", "ur"].includes(settings.lang)) return settings.lang === "ar" ? app : "ar-SA";
-    if (!/[^\u0000-\u024F\s\d.,!?'"():;-]/.test(text) && RTL.has(settings.lang)) return "en-US"; // Latin text read in an Arabic app
+    const app = langInfo(activeLang()).speech;
+    if (/[\u0600-\u06FF]/.test(text) && !["fa", "ur"].includes(activeLang())) return activeLang() === "ar" ? app : "ar-SA";
+    if (!/[^\u0000-\u024F\s\d.,!?'"():;-]/.test(text) && RTL.has(activeLang())) return "en-US"; // Latin text read in an Arabic app
     return app;
   }
 
@@ -341,7 +353,7 @@
   const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
   /** Must run inside a tap: lets the page play audio later (iPhone and Android). */
   function unlockAudio() {
-    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch {}
+    // Note: don't set navigator.audioSession.type = "playback" — on iPhone that turns the microphone off.
     player.src = SILENT_WAV;
     player.play().catch(() => {});
   }
@@ -501,7 +513,7 @@
     const L = t();
     return `You are Baseer (بصير), the eyes of a blind or low-vision person. The photo was just taken by their phone camera, pointing roughly where they face. Your reply is read aloud, so write plain short sentences in simple, clear, everyday words: no lists, no markdown, no emojis, no symbols.
 
-Always reply in ${L.langName}.
+Always reply in ${replyLang && replyLang !== settings.lang ? (replyLang === "ar" ? T.ar.langName : langInfo(replyLang).name) : L.langName}.
 
 Safety rules (these override everything else):
 - Never say or imply that a path, road, crossing, or area is safe, clear, or free of obstacles. You only see one still photo and can miss things.
@@ -896,6 +908,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     } catch {}
   }
   // ---------- Baseer's own microphone (reliable on iPhone): voice detection + ElevenLabs speech-to-text ----------
+  let sttFailures = 0;
   let mic = null; // { stream, analyser, data, recorder, chunks, state, since, quietSince, floor }
   const useOwnMic = () => !!settings.elevenKey && !!window.MediaRecorder && !!navigator.mediaDevices;
 
@@ -911,6 +924,8 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       source.connect(analyser);
       mic = { stream, analyser, data: new Float32Array(analyser.fftSize), recorder: null, chunks: [], state: "idle", since: 0, quietSince: 0, floor: 0.01 };
       setInterval(micTick, 50);
+      // If the microphone sends only silence for a while, it's blocked: say so.
+      setTimeout(() => { if (mic && mic.peak < 0.001) speak(t().v.micSilent); }, 6000);
       return true;
     } catch {
       return false;
@@ -931,6 +946,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   function micTick() {
     if (!mic) return;
     const level = micLevel();
+    mic.peak = Math.max(mic.peak || 0, level);
     const now = Date.now();
     const quietEnough = busy || isSpeaking() || speakingUntilIdle || !listening;
     if (mic.state === "idle") {
@@ -980,16 +996,23 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     const form = new FormData();
     form.append("model_id", "scribe_v1");
     form.append("file", blob, `speech.${ext}`);
-    form.append("language_code", settings.lang === "fil" ? "tl" : settings.lang);
+    // No language_code: ElevenLabs works out which language was spoken.
     try {
       const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": settings.elevenKey }, body: form });
       if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
+      sttFailures = 0;
       const text = (data.text || "").replace(/\(.*?\)|\[.*?\]/g, "").trim(); // drop "(laughs)", "[music]"
-      if (text.length > 1) handleHeard(text);
-    } catch {
-      // Speech-to-text failed: fall back to the phone's own recognition for next time.
-      settings.useOwnMic = false;
+      const lang = ISO3[(data.language_code || "").toLowerCase()] || (data.language_code || "").slice(0, 2).toLowerCase();
+      if (text.length > 1) {
+        if (lang && LANGS.some(l => l.code === lang) && (data.language_probability ?? 1) > 0.5) replyLang = lang;
+        handleHeard(text);
+      }
+    } catch (e) {
+      sttFailures++;
+      const code = String(e && e.message || "");
+      speak(code === "401" ? t().v.sttKey : t().v.sttFailed);
+      if (sttFailures >= 3) settings.useOwnMic = false; // give the phone's own recognition a try
     }
   }
 
