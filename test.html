@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>فحص بصير</title>
+<style>
+  :root { --bg: #f3ebdf; --card: #fbf6ef; --accent: #a85a36; --ink: #2e1f14; --muted: #7a6656; --ok: #2f7d35; --bad: #b3261e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 system-ui, "Geeza Pro", sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 40px; display: grid; gap: 12px; }
+  h1 { margin: 0; font-size: 1.8rem; }
+  button { font: 700 1.4rem system-ui, sans-serif; border: 0; border-radius: 18px; min-height: 72px; background: var(--accent); color: #fff; }
+  ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  li { background: var(--card); border-radius: 14px; padding: 12px 14px; }
+  li b { display: block; }
+  li small { color: var(--muted); overflow-wrap: anywhere; }
+  .ok b::before { content: "✅ "; } .bad b::before { content: "❌ "; } .wait b::before { content: "⏳ "; }
+  p { margin: 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>فحص بصير</h1>
+  <p>اضغطي الزر، وإذا قال «تكلمي الحين» قولي «مرحبا». بعدها صوّري الشاشة وأرسليها.</p>
+  <button id="go" type="button">ابدأ الفحص</button>
+  <ol id="out"></ol>
+</main>
+<script>
+(() => {
+  const out = document.getElementById("out");
+  const get = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+  const key = get("key") || "", elKey = get("elevenKey") || "", voiceId = get("elevenVoiceId") || "", engine = get("voiceEngine") || "system";
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function row(title) {
+    const li = document.createElement("li");
+    li.className = "wait";
+    li.innerHTML = "<b></b><small></small>";
+    li.querySelector("b").textContent = title;
+    out.append(li);
+    return (ok, detail) => { li.className = ok ? "ok" : "bad"; li.querySelector("small").textContent = detail || ""; };
+  }
+  function say(text) {
+    return new Promise(resolve => {
+      if (!window.speechSynthesis) return resolve("no speechSynthesis");
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ar-SA";
+      let started = false;
+      u.onstart = () => { started = true; };
+      u.onend = () => resolve(started ? "spoke" : "ended without start");
+      u.onerror = (e) => resolve("error: " + e.error);
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      setTimeout(() => resolve(started ? "spoke (still talking)" : "no start after 4s"), 4000);
+    });
+  }
+
+  document.getElementById("go").addEventListener("click", async () => {
+    out.textContent = "";
+    const ua = navigator.userAgent;
+    row("الجهاز")(true, `${/iPhone|iPad/.test(ua) ? "آيفون" : /Android/.test(ua) ? "أندرويد" : "غيره"} · ${navigator.standalone || matchMedia("(display-mode: standalone)").matches ? "من أيقونة الشاشة الرئيسية" : "من المتصفح"} · ${ua.slice(0, 120)}`);
+    row("المفاتيح المحفوظة")(!!key, `Anthropic: ${key ? "موجود" : "ناقص"} · ElevenLabs: ${elKey ? "موجود" : "ناقص"} · نوع الصوت: ${engine} · صوت محفوظ: ${voiceId ? "نعم" : "لا"}`);
+
+    // 1) Phone voice
+    const r1 = row("صوت الجوال");
+    const voices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    const res1 = await say("هذا اختبار صوت الجوال.");
+    r1(res1.startsWith("spoke"), `${res1} · أصوات عربية: ${voices.filter(v => /^ar/i.test(v.lang)).length} من ${voices.length}`);
+
+    // 2) ElevenLabs voice
+    const r2 = row("صوت ElevenLabs");
+    if (!elKey || !voiceId) r2(false, "ما في مفتاح أو صوت محفوظ");
+    else {
+      try {
+        const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_64`, {
+          method: "POST", headers: { "xi-api-key": elKey, "content-type": "application/json" },
+          body: JSON.stringify({ text: "هذا اختبار صوت إلفن لابز.", model_id: "eleven_flash_v2_5" })
+        });
+        if (!res.ok) { r2(false, `HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`); }
+        else {
+          const audio = new Audio(URL.createObjectURL(await res.blob()));
+          const played = await new Promise(resolve => {
+            audio.onended = () => resolve("played"); audio.onerror = () => resolve("play error");
+            audio.play().catch(e => resolve("blocked: " + e.name));
+            setTimeout(() => resolve("still playing"), 6000);
+          });
+          r2(played !== "play error" && !played.startsWith("blocked"), played);
+        }
+      } catch (e) { r2(false, "network: " + e.message); }
+    }
+
+    // 3) Microphone
+    const r3 = row("الميكروفون");
+    let stream = null, blob = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      await say("تكلمي الحين. قولي مرحبا.");
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      await ctx.resume();
+      const an = ctx.createAnalyser(); an.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(an);
+      const data = new Float32Array(1024);
+      const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+      const rec = window.MediaRecorder ? (type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream)) : null;
+      const chunks = [];
+      if (rec) { rec.ondataavailable = e => e.data.size && chunks.push(e.data); rec.start(); }
+      let peak = 0;
+      for (let i = 0; i < 80; i++) { an.getFloatTimeDomainData(data); let s = 0; for (const v of data) s += v * v; peak = Math.max(peak, Math.sqrt(s / data.length)); await sleep(50); }
+      if (rec) { await new Promise(r => { rec.onstop = r; rec.stop(); }); blob = new Blob(chunks, { type: rec.mimeType }); }
+      r3(peak > 0.005, `أعلى مستوى صوت: ${peak.toFixed(4)} ${peak > 0.005 ? "(وصل صوت)" : "(ما وصل صوت)"} · التسجيل: ${blob ? blob.size + " بايت " + blob.type : "غير مدعوم"} · AudioContext: ${ctx.state}`);
+    } catch (e) { r3(false, `${e.name}: ${e.message}`); }
+
+    // 4) Speech-to-text
+    const r4 = row("تحويل كلامك لنص (ElevenLabs)");
+    if (!elKey) r4(false, "ما في مفتاح ElevenLabs");
+    else if (!blob || blob.size < 1000) r4(false, "ما في تسجيل");
+    else {
+      try {
+        const form = new FormData();
+        form.append("model_id", "scribe_v1");
+        form.append("file", blob, blob.type.includes("mp4") || blob.type.includes("aac") ? "speech.m4a" : "speech.webm");
+        const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": elKey }, body: form });
+        const body = await res.text();
+        if (!res.ok) r4(false, `HTTP ${res.status}: ${body.slice(0, 200)}`);
+        else { const j = JSON.parse(body); r4(true, `سمعت: «${j.text}» (${j.language_code})`); }
+      } catch (e) { r4(false, "network: " + e.message); }
+    }
+
+    // 5) Phone's built-in speech recognition
+    const r5 = row("السماع من Safari نفسه");
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    r5(!!SR, SR ? "موجود" : "غير موجود في هذا المتصفح");
+
+    // 6) Anthropic
+    const r6 = row("مفتاح Anthropic (الوصف)");
+    if (!key) r6(false, "ناقص");
+    else {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 20, messages: [{ role: "user", content: "قل: تمام" }] })
+        });
+        r6(res.ok, res.ok ? "يشتغل" : `HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
+      } catch (e) { r6(false, "network: " + e.message); }
+    }
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    await say("خلص الفحص. صوّري الشاشة وأرسليها.");
+  });
+})();
+</script>
+</body>
+</html>
