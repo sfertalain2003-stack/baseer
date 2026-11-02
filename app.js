@@ -922,7 +922,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 1024;
       source.connect(analyser);
-      mic = { stream, analyser, data: new Float32Array(analyser.fftSize), recorder: null, chunks: [], state: "idle", since: 0, quietSince: 0, floor: 0.01 };
+      mic = { stream, source, analyser, data: new Float32Array(analyser.fftSize), recorder: null, chunks: [], state: "idle", since: 0, quietSince: 0, floor: 0.01 };
       setInterval(micTick, 50);
       // If the microphone sends only silence for a while, it's blocked: say so.
       setTimeout(() => { if (mic && mic.peak < 0.001) speak(t().v.micSilent); }, 6000);
@@ -934,6 +934,26 @@ Give directions relative to the user: ahead, to your left, to your right, about 
 
   // Diagnostics for testing: open the app with ?debug and call __baseerMic() in the console.
   if (location.search.includes("debug")) window.__baseerMic = () => ({ open: !!mic, state: mic && mic.state, floor: mic && mic.floor, level: mic && micLevel(), listening, busy, speaking: isSpeaking(), ctx: audioCtx && audioCtx.state });
+
+  /**
+   * iPhone silences an open microphone whenever the page speaks with the phone voice.
+   * So after Baseer talks, take a fresh microphone stream before listening again.
+   */
+  async function refreshMic() {
+    if (!mic || mic.refreshing) return;
+    mic.refreshing = true;
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (audioCtx.state !== "running") await audioCtx.resume().catch(() => {});
+      try { mic.source.disconnect(); } catch {}
+      mic.stream.getTracks().forEach(tr => tr.stop());
+      mic.stream = fresh;
+      mic.source = audioCtx.createMediaStreamSource(fresh);
+      mic.source.connect(mic.analyser);
+      mic.state = "idle"; mic.since = 0; mic.peak = 0;
+    } catch {}
+    mic.refreshing = false;
+  }
 
   function micLevel() {
     mic.analyser.getFloatTimeDomainData(mic.data);
@@ -1020,10 +1040,13 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (useOwnMic() && settings.useOwnMic !== false) {
       if (!settings.handsFree || busy || speakingUntilIdle || isSpeaking()) return;
       if (!mic) { openMic().then(ok => { if (ok) startListening(fromTap); else { settings.useOwnMic = false; startListening(fromTap); } }); return; }
-      if (!listening) {
-        listening = true;
-        if (cueNext || fromTap) { listenCue(); vibrate(30); cueNext = false; }
-        updateChips();
+      if (!listening && !mic.refreshing) {
+        refreshMic().then(() => {
+          if (busy || speakingUntilIdle || isSpeaking()) return;
+          listening = true;
+          if (cueNext || fromTap) { listenCue(); vibrate(30); cueNext = false; }
+          updateChips();
+        });
       }
       return;
     }

@@ -22,7 +22,7 @@
 <body>
 <main>
   <h1>فحص بصير</h1>
-  <p>اضغطي الزر، وإذا قال «تكلمي الحين» قولي «مرحبا». بعدها صوّري الشاشة وأرسليها.</p>
+  <p>اضغطي الزر، ولما تسمعين الصفارة قولي «مرحبا». بعدها صوّري الشاشة وأرسليها.</p>
   <button id="go" type="button">ابدأ الفحص</button>
   <ol id="out"></ol>
 </main>
@@ -94,8 +94,9 @@
     const r3 = row("الميكروفون");
     let stream = null, blob = null;
     try {
+      await say("بعد الصفارة قولي مرحبا.");
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      await say("تكلمي الحين. قولي مرحبا.");
+      try { const c = new (window.AudioContext || window.webkitAudioContext)(); const o = c.createOscillator(); o.connect(c.destination); o.start(); o.stop(c.currentTime + 0.15); } catch {}
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       await ctx.resume();
       const an = ctx.createAnalyser(); an.fftSize = 1024;
@@ -108,7 +109,8 @@
       let peak = 0;
       for (let i = 0; i < 80; i++) { an.getFloatTimeDomainData(data); let s = 0; for (const v of data) s += v * v; peak = Math.max(peak, Math.sqrt(s / data.length)); await sleep(50); }
       if (rec) { await new Promise(r => { rec.onstop = r; rec.stop(); }); blob = new Blob(chunks, { type: rec.mimeType }); }
-      r3(peak > 0.005, `أعلى مستوى صوت: ${peak.toFixed(4)} ${peak > 0.005 ? "(وصل صوت)" : "(ما وصل صوت)"} · التسجيل: ${blob ? blob.size + " بايت " + blob.type : "غير مدعوم"} · AudioContext: ${ctx.state}`);
+      const track = stream.getAudioTracks()[0];
+      r3(peak > 0.005, `${track.muted ? "المسار مكتوم · " : ""}أعلى مستوى صوت: ${peak.toFixed(4)} ${peak > 0.005 ? "(وصل صوت)" : "(ما وصل صوت)"} · التسجيل: ${blob ? blob.size + " بايت " + blob.type : "غير مدعوم"} · AudioContext: ${ctx.state}`);
     } catch (e) { r3(false, `${e.name}: ${e.message}`); }
 
     // 4) Speech-to-text
