@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "17";
+const BASEER_VERSION = "18";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -232,7 +232,6 @@ const BASEER_VERSION = "17";
   /** Asks Claude once to translate every button and spoken sentence into a new language. */
   async function translateUI(code) {
     if (T[code] || loadTranslation(code)) return true;
-    if (!settings.key) return false;
     const source = flatten(T.en);
     delete source.langName;
     source["v.langReady"] = `I'm speaking ${langInfo(code).name} now.`;
@@ -242,14 +241,18 @@ const BASEER_VERSION = "17";
       `"yesWords" and "noWords" are comma-separated words people say for yes and no. "wake" must be the app name only. ` +
       `Return only the JSON object.\n\n` + JSON.stringify({ ...source, wake: "Baseer" });
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": settings.key, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 8000, output_config: { effort: "low" }, messages: [{ role: "user", content: prompt }] })
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+      let text = "";
+      for (const model of GEMINI_MODELS) {
+        const ep = geminiEndpoint(model, false);
+        const res = await fetch(ep.url, {
+          method: "POST", headers: ep.headers,
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 12000, temperature: 0.2, responseMimeType: "application/json" } })
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        text = ((data.candidates || [])[0]?.content?.parts || []).map(x => x.text || "").join("");
+        if (text.includes("{")) break;
+      }
       const flat = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
       store.set("ui_" + code, flat);
       return loadTranslation(code);
@@ -1306,7 +1309,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
 
   function startRecording() {
-    setMicStatus("🔴 أسمعك…");
+    setMicStatus("🔴 " + t().micOn + "…");
     const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
     try {
       mic.recorder = type ? new MediaRecorder(mic.stream, { mimeType: type }) : new MediaRecorder(mic.stream);
@@ -1329,7 +1332,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
 
   function stopRecording() {
-    setMicStatus("⏳ لحظة…");
+    setMicStatus("⏳ " + t().looking);
     if (mic.recorder && mic.recorder.state !== "inactive") { mic.state = "sending"; mic.recorder.stop(); }
   }
 
@@ -1367,7 +1370,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
         refreshMic().then(() => {
           if (busy || speakingUntilIdle || isSpeaking()) return;
           listening = true;
-          setMicStatus("🎙️ تكلّم");
+          setMicStatus("🎙️ " + t().micOn);
           if (cueNext || fromTap) { listenCue(); vibrate(30); cueNext = false; }
         });
       }
@@ -1472,6 +1475,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
       await translateUI(code); // falls back to English buttons if it can't translate
     }
     settings.lang = code; store.set("lang", code);
+    if ($("homeLang")) $("homeLang").value = code;
     applyLang();
     stopListening(); // restart recognition in the new language
     speak(t().v.langReady || T.en.v.langReady);
@@ -1659,6 +1663,16 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   $("trustedPhone").value = settings.trustedPhone;
   LANGS.forEach(l => { const o = document.createElement("option"); o.value = l.code; o.textContent = l.name; $("langSelect").append(o); });
   $("langSelect").value = settings.lang;
+  LANGS.forEach(l => { const o = document.createElement("option"); o.value = l.code; o.textContent = l.name; $("homeLang").append(o); });
+  $("homeLang").value = settings.lang;
+  $("homeLang").addEventListener("change", () => {
+    const code = $("homeLang").value;
+    if (code === settings.lang) return;
+    settings.voiceName = ""; store.set("voiceName", "");
+    replyLang = code;
+    $("langSelect").value = code;
+    switchLanguage(code);
+  });
   $("engineSelect").value = settings.voiceEngine;
   $("elevenKey").value = settings.elevenKey;
   if (!["ar", "en"].includes(settings.lang)) loadTranslation(settings.lang);
