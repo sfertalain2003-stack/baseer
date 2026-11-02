@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "13";
+const BASEER_VERSION = "14";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -91,7 +91,7 @@ const BASEER_VERSION = "13";
         needElevenKey: "حط مفتاح ElevenLabs أول.",
         firstWarn: "قبل نبدأ: أنا أداة مساعدة، ولا أغني عن العصا أو الكلب المرشد، ولا تعتمد عليّ لعبور الشوارع.",
         needKey: "أحتاج مفتاح Gemini المجاني. في الشاشة زر: الصق مفتاح Gemini.",
-        looking: "لحظة، أشوف.", yes: "نعم؟", ok: "تمام.", saved: "حفظت.",
+        looking: "لحظة، أشوف.", gotIt: "لحظة.", yes: "نعم؟", ok: "تمام.", saved: "حفظت.",
         noCamera: "ما قدرت أفتح الكاميرا. اسمح للمتصفح يستخدم الكاميرا.",
         noMic: "ما قدرت أفتح الميكروفون. تقدر تضغط الأزرار بدال الصوت.",
         tooDark: "المكان مظلم جداً وما أشوف شي. شغّل كشاف الجوال وحاول مرة ثانية.",
@@ -153,7 +153,7 @@ const BASEER_VERSION = "13";
         yesWords: "yes, yeah, sure, ok", noWords: "no, cancel",
         firstWarn: "Before we start: I'm an assistive tool, not a replacement for your cane or guide dog. Never rely on me to cross streets.",
         needKey: "I need the free Gemini key. Ask the person who set up the app to add it.",
-        looking: "One moment, looking.", yes: "Yes?", ok: "OK.", saved: "Saved.",
+        looking: "One moment, looking.", gotIt: "One moment.", yes: "Yes?", ok: "OK.", saved: "Saved.",
         noCamera: "I couldn't open the camera. Allow the browser to use it.",
         noMic: "I couldn't open the microphone. You can use the buttons instead.",
         tooDark: "It's too dark to see anything. Turn on the phone's torch and try again.",
@@ -674,7 +674,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
         if (winner) return reject("not needed");
         debug("slow answer, sending a second request");
         start().then(resolve, reject);
-      }, 3000));
+      }, 2500));
       let winner = null;
       try {
         winner = await Promise.any([first, backup]);
@@ -764,11 +764,13 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   async function voiceToGemini(blob) {
     const V = t().v;
     if (busy) return;
+    setBusy(true);
+    listenCue(); vibrate(40);
+    speak(V.gotIt); // instant "one moment", so there's never a silent wait
     let audio;
     debug(`voice: ${blob.size} bytes ${blob.type}`);
-    try { audio = await toWav(blob); } catch (e) { debug("toWav failed: " + (e && e.message)); setMicStatus(""); speak(t().v.sttFailed); return; }
+    try { audio = await toWav(blob); } catch (e) { debug("toWav failed: " + (e && e.message)); setBusy(false); setMicStatus(""); speak(t().v.sttFailed); return; }
     debug(`wav ready, camera ${stream ? "on" : "off"}`);
-    setBusy(true);
     controller = new AbortController();
     const frame = stream ? await captureForAI(960) : null; // smaller photo = faster upload
     const instruction =
@@ -811,7 +813,6 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
               return;
             }
             answering = true;
-            speak(V.looking);
             if (rest.trim()) { stopSpeaking(); sentences.add(rest); $("reply").textContent = rest; }
             return;
           }
@@ -1225,10 +1226,10 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
       if (quietEnough) { mic.since = 0; return; }
       // Learns the room's background noise: follows quiet levels quickly, loud ones barely.
       mic.floor = level < mic.floor ? mic.floor * 0.9 + level * 0.1 : mic.floor * 0.998 + level * 0.002;
-      const threshold = Math.max(0.02, mic.floor * 3);
+      const threshold = Math.max(0.03, mic.floor * 3);
       if (level > threshold) {
         if (!mic.since) mic.since = now;
-        if (now - mic.since > 120) startRecording();
+        if (now - mic.since > 200) startRecording();
       } else mic.since = 0;
     } else if (mic.state === "recording") {
       const threshold = Math.max(0.015, mic.floor * 2.2);
@@ -1249,12 +1250,15 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     mic.recorder.ondataavailable = (e) => { if (e.data && e.data.size) mic.chunks.push(e.data); };
     mic.recorder.onstop = () => {
       const blob = new Blob(mic.chunks, { type: mic.recorder.mimeType || "audio/webm" });
+      const spokeFor = Date.now() - (mic.recStart || 0);
       mic.state = "idle"; mic.since = 0;
+      if (spokeFor < 800) { setMicStatus(""); startListening(); return; } // just a short noise
       if (blob.size > 2000) (useGemini() ? voiceToGemini(blob) : transcribe(blob));
     };
     mic.recorder.start();
     mic.state = "recording";
     mic.since = Date.now();
+    mic.recStart = Date.now() - 200;
     mic.quietSince = 0;
     updateChips();
   }
