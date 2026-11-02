@@ -1406,6 +1406,21 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     if (settings.handsFree) startListening(); else stopListening();
     updateChips();
   });
+  // Gemini key: one-tap paste, saved straight away (no Save button needed).
+  function saveGeminiKey(raw) {
+    const key = (raw || "").trim().replace(/\s+/g, "");
+    if (!key) return;
+    settings.geminiKey = key;
+    store.set("geminiKey", key);
+    $("geminiKey").value = key;
+    $("geminiStatus").textContent = `✅ محفوظ: …${key.slice(-4)}`;
+    speak("حفظت المفتاح.");
+  }
+  $("pasteGemini").addEventListener("click", async () => {
+    try { saveGeminiKey(await navigator.clipboard.readText()); }
+    catch { $("geminiKey").focus(); $("geminiStatus").textContent = "اضغطي مطولاً داخل الخانة واختاري «لصق»."; }
+  });
+  $("geminiKey").addEventListener("input", (e) => { if (e.target.value.trim().length > 20) saveGeminiKey(e.target.value); });
   $("voiceSelect").addEventListener("change", (e) => { saveVoice(e.target.value); sampleVoice(); });
   $("engineSelect").addEventListener("change", (e) => {
     settings.voiceEngine = e.target.value; store.set("voiceEngine", settings.voiceEngine);
@@ -1439,6 +1454,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   // Fill the settings form.
   $("keyInput").value = settings.key;
   $("geminiKey").value = settings.geminiKey;
+  if (settings.geminiKey) $("geminiStatus").textContent = `✅ محفوظ: …${settings.geminiKey.slice(-4)}`;
   $("modelSelect").value = settings.model;
   $("trustedName").value = settings.trustedName;
   $("trustedPhone").value = settings.trustedPhone;
