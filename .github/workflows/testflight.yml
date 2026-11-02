@@ -8,7 +8,7 @@ on:
 
 jobs:
   upload:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
