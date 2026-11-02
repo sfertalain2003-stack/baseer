@@ -1394,7 +1394,17 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   });
   $("lastBtn").addEventListener("click", () => speak(lastReply || t().v.nothing));
   // Settings are hidden from the tab bar; the helper opens them with #settings in the address.
-  function routeFromHash() { showTab(location.hash === "#settings" ? "settings" : "home"); }
+  function routeFromHash() {
+    // Setup link: .../baseer/#key=AIza... saves the free key on this phone, then removes it from the address.
+    const m = location.hash.match(/^#key=([A-Za-z0-9_\-]{20,})$/);
+    if (m) {
+      saveGeminiKey(m[1]);
+      history.replaceState(null, "", location.pathname);
+      showTab("home");
+      return;
+    }
+    showTab(location.hash === "#settings" ? "settings" : "home");
+  }
   window.addEventListener("hashchange", routeFromHash);
   document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
     showTab(b.dataset.go);
