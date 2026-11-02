@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "18";
+const BASEER_VERSION = "19";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -1532,7 +1532,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   async function autoStart() {
     try {
       const state = async (name) => (await navigator.permissions.query({ name })).state;
-      const [micPerm, camPerm] = await Promise.all([state("microphone").catch(() => "prompt"), state("camera").catch(() => "prompt")]);
+      const [micPerm, camPerm] = window.baseerNative ? ["granted", "granted"] : await Promise.all([state("microphone").catch(() => "prompt"), state("camera").catch(() => "prompt")]);
       debug(`permissions: mic ${micPerm}, camera ${camPerm}`);
       if (micPerm !== "granted" || !hasAI()) return;
       started = true;
