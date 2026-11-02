@@ -1,6 +1,6 @@
-// Keeps the app shell available offline so Baseer opens instantly. AI calls always go to the network.
-const CACHE = "baseer-v1";
-const SHELL = ["./", "index.html", "app.js", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
+// Always fetch the newest Baseer from the internet; use the saved copy only when offline.
+const CACHE = "baseer-v11";
+const SHELL = ["./", "index.html", "app.js?v=11", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -14,9 +14,8 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
-  // Network first, so updates arrive; fall back to the cached shell when offline.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-store" })
       .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return res; })
       .catch(() => caches.match(e.request).then((r) => r || caches.match("index.html")))
   );

@@ -1,5 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
+const BASEER_VERSION = "11";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -361,7 +362,12 @@
       debug("speech end missed, recovering");
       afterSpeech();
     }
+    // Self-heal: if Baseer is idle but not listening, start listening again.
+    if (started && !listening && !busy && !speakingUntilIdle && !isSpeaking() && Date.now() - speechStartedAt > 2000) {
+      if (++idleTicks >= 4) { idleTicks = 0; debug("idle but not listening, restarting"); settings.handsFree = true; startListening(); }
+    } else idleTicks = 0;
   }, 500);
+  let idleTicks = 0;
 
   function isSpeaking() { return elevenBusy > 0 || (!!synth && (synth.speaking || synth.pending)); }
   function afterSpeech() {
@@ -1526,6 +1532,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && walking) requestWakeLock(); });
   applyLang();
 
+  debug("Baseer version " + BASEER_VERSION);
   routeFromHash();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
