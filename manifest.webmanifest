@@ -1,0 +1,19 @@
+{
+  "name": "بصير — عينك الذكية",
+  "short_name": "بصير",
+  "description": "يوصف لك المكان ويقرأ النصوص ويترجمها بالصوت، للمكفوفين وضعاف البصر.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3ebdf",
+  "theme_color": "#a85a36",
+  "categories": ["accessibility", "utilities"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>بصير</title>
+<meta name="description" content="بصير: عينك الذكية. يوصف لك المكان ويقرأ النصوص ويترجمها بالصوت.">
+<meta name="theme-color" content="#a85a36">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="بصير">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #f3ebdf; --card: #fbf6ef; --card-muted: #e9dfd1; --accent: #a85a36; --ring: #ebd9c8;
+    --on-accent: #fff8f0; --ink: #2e1f14; --muted: #7a6656; --ok: #3d9e45; --danger: #b3261e;
+    --font: "Readex Pro", "Geeza Pro", "Noto Sans Arabic", system-ui, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1612; --card: #2a211b; --card-muted: #332820; --accent: #c9714a; --ring: #3a2a20;
+      --on-accent: #fff8f0; --ink: #f5ebdf; --muted: #b8a797; --ok: #5cc065; --danger: #e5554b; color-scheme: dark;
+    }
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 17px; line-height: 1.5; -webkit-tap-highlight-color: transparent; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 4px solid var(--accent); outline-offset: 3px; }
+
+  .app {
+    max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px;
+    padding: calc(14px + env(safe-area-inset-top, 0px)) max(18px, env(safe-area-inset-right, 0px)) 130px max(18px, env(safe-area-inset-left, 0px));
+  }
+  .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .chip { display: flex; align-items: center; gap: 7px; min-height: 52px; padding: 0 12px; background: var(--card); border-radius: 999px; font-weight: 500; font-size: .88rem; min-width: 0; }
+  .chip .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--muted); flex: none; }
+  .chip .dot.on { background: var(--ok); }
+  .chip span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip svg { width: 22px; height: 22px; flex: none; }
+
+  .ring { background: var(--ring); border-radius: 50%; padding: 18px; width: 100%; max-width: 350px; margin: 0 auto; }
+  .circle {
+    position: relative; overflow: hidden; width: 100%; aspect-ratio: 1; border: 0; border-radius: 50%;
+    background: var(--accent); color: var(--on-accent);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center;
+  }
+  .circle video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .18; pointer-events: none; }
+  .circle > :not(video) { position: relative; }
+  .circle svg { width: 34%; height: auto; }
+  .circle .big { font-size: clamp(2.2rem, 11vw, 3.2rem); font-weight: 700; line-height: 1.15; }
+  .circle .hint { font-size: 1.05rem; opacity: .95; }
+  .circle .hint b { display: block; }
+  .circle[aria-busy="true"] { animation: breathe 1.4s ease-in-out infinite; }
+  @keyframes breathe { 50% { transform: scale(.97); } }
+  @media (prefers-reduced-motion: reduce) { .circle[aria-busy="true"] { animation: none; opacity: .85; } }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile { border: 0; background: var(--card); border-radius: 22px; min-height: 124px; padding: 14px 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-weight: 600; font-size: 1.05rem; min-width: 0; }
+  .tile svg { width: 38px; height: 38px; }
+
+  .last { border: 0; background: var(--card-muted); border-radius: 20px; padding: 16px 18px; display: flex; align-items: center; gap: 12px; text-align: start; width: 100%; }
+  .last .text { flex: 1; min-width: 0; }
+  .last small { display: block; color: var(--muted); font-size: .92rem; }
+  .last p { margin: 2px 0 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
+  .last svg { width: 22px; height: 22px; color: var(--muted); flex: none; }
+  [dir="ltr"] .last .chev { transform: scaleX(-1); }
+
+  h1 { font-size: 2rem; font-weight: 700; margin: 6px 0 0; }
+  h2 { font-size: 1.25rem; margin: 10px 0 0; }
+  .list { display: grid; gap: 12px; }
+  .wide { border: 0; width: 100%; background: var(--card); border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 16px; text-align: start; }
+  .wide.on { background: var(--accent); color: var(--on-accent); }
+  .wide .icon { width: 54px; height: 54px; border-radius: 50%; background: var(--ring); display: grid; place-items: center; flex: none; }
+  .wide.on .icon { background: rgba(255, 255, 255, .2); }
+  .wide .icon svg { width: 28px; height: 28px; }
+  .wide b { display: block; font-size: 1.2rem; }
+  .wide small { opacity: .75; font-size: .95rem; }
+  .note { background: var(--card); border-radius: 20px; padding: 16px; color: var(--muted); margin: 0; }
+  .note strong { color: var(--danger); }
+  .sos { border: 0; width: 100%; min-height: 170px; border-radius: 28px; background: var(--danger); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .sos b { font-size: 1.9rem; }
+  .field { display: grid; gap: 6px; background: var(--card); border-radius: 20px; padding: 16px; }
+  .field label { font-weight: 600; }
+  .field input, .field select { min-height: 52px; padding: 10px 14px; border-radius: 14px; border: 2px solid var(--card-muted); background: var(--bg); width: 100%; }
+  .field small { color: var(--muted); }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--card); border-radius: 20px; padding: 16px; }
+  .switch input { width: 28px; height: 28px; accent-color: var(--accent); }
+  .ask-row { display: flex; gap: 8px; }
+  .ask-row input { flex: 1; min-width: 0; font-size: 1.1rem; padding: 12px 14px; min-height: 56px; border: 2px solid var(--card-muted); border-radius: 16px; background: var(--card); }
+  .ask-row button { border: 0; border-radius: 16px; padding: 0 18px; background: var(--accent); color: var(--on-accent); font-weight: 700; }
+  .primary { border: 0; min-height: 52px; border-radius: 14px; background: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 0 max(18px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px)); pointer-events: none; }
+  .tabbar nav { pointer-events: auto; max-width: 480px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--card); border-radius: 999px; padding: 8px; box-shadow: 0 6px 24px rgba(46, 31, 20, .12); }
+  .tabbar button { border: 0; background: none; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: .85rem; min-height: 56px; justify-content: center; }
+  .tabbar button svg { width: 26px; height: 26px; }
+  .tabbar button[aria-current="page"] { color: var(--accent); font-weight: 700; }
+
+  .start { position: fixed; inset: 0; z-index: 20; border: 0; width: 100%; background: var(--accent); color: var(--on-accent); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
+  .start svg { width: 42%; max-width: 200px; }
+  .start b { font-size: 3rem; }
+  .start span { font-size: 1.4rem; max-width: 18ch; line-height: 1.6; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<button class="start" id="startOverlay" type="button">
+  <svg viewBox="0 0 100 60" aria-hidden="true"><path fill="currentColor" d="M50 2C27 2 9 18 2 30c7 12 25 28 48 28s41-16 48-28C91 18 73 2 50 2Zm0 47a19 19 0 1 1 0-38 19 19 0 0 1 0 38Z"/><circle cx="50" cy="30" r="9" fill="currentColor"/></svg>
+  <b data-t="appName">بصير</b>
+  <span data-t="startText">اضغط في أي مكان عشان أبدأ أتكلم معك</span>
+</button>
+
+<main class="app" id="app">
+  <!-- HOME -->
+  <section data-tab="home" class="list" style="gap:18px">
+    <div class="chips">
+      <div class="chip" role="status"><i class="dot" id="camDot"></i><span id="camText">الكاميرا</span>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 4 7.5 6H5a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V9a3 3 0 0 0-3-3h-2.5L15 4H9Zm3 5a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg></div>
+      <div class="chip" role="status"><i class="dot" id="micDot"></i><span id="micText">الميكروفون</span>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Zm-7 9a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2a5 5 0 0 1-10 0H5Z"/></svg></div>
+    </div>
+
+    <div class="ring">
+      <button class="circle" id="describeBtn" type="button">
+        <video id="video" playsinline muted autoplay aria-hidden="true"></video>
+        <svg viewBox="0 0 100 60" aria-hidden="true"><path fill="currentColor" d="M50 2C27 2 9 18 2 30c7 12 25 28 48 28s41-16 48-28C91 18 73 2 50 2Zm0 47a19 19 0 1 1 0-38 19 19 0 0 1 0 38Z"/><circle cx="50" cy="30" r="9" fill="currentColor"/></svg>
+        <span class="big" id="describeText">اوصف لي</span>
+        <span class="hint" id="describeHint">اضغط في أي مكان أو قل:<b>بصير، اوصفلي</b></span>
+      </button>
+    </div>
+
+    <div class="tiles">
+      <button class="tile" data-act="read" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm2 9v2h8v-2H8Zm0 4v2h8v-2H8Zm0-8v2h4V7H8Z"/></svg><span data-t="readTile">اقرأ نصاً</span></button>
+      <button class="tile" data-act="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg><span data-t="askTile">شو جدامي؟</span></button>
+      <button class="tile" data-act="color" type="button"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.4 0 2-1 2-2 0-1.2-1.2-1.6-1.2-2.8 0-1.1.9-2 2-2h2.4A4.8 4.8 0 0 0 22 10.4C22 5.7 17.5 2 12 2ZM6.5 13a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"/></svg><span data-t="colorTile">الألوان</span></button>
+    </div>
+
+    <form class="ask-row" id="askForm" hidden>
+      <label class="sr" for="question" data-t="askLabel">سؤالك عن المكان</label>
+      <input id="question" type="text" autocomplete="off">
+      <button type="submit" data-t="askBtn">اسأل</button>
+    </form>
+
+    <button class="last" id="lastBtn" type="button">
+      <div class="text"><small data-t="lastLabel">آخر وصف:</small><p id="reply" role="status" aria-live="polite"></p></div>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
+    </button>
+  </section>
+
+  <!-- READ -->
+  <section data-tab="read" class="list" hidden>
+    <h1 data-t="tabRead">اقرأ</h1>
+    <button class="wide" data-act="read" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm2 9v2h8v-2H8Zm0 4v2h8v-2H8Z"/></svg></span><span><b data-t="readText">اقرأ النص</b><small data-t="readSub"></small></span></button>
+    <button class="wide" data-act="translate" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h8M8 3v2m-3 0c1 4 4 7 7 8M11 5c-1 4-4 7-7 8"/><path d="m13 21 4-9 4 9m-6.5-3h5"/></svg></span><span><b data-t="translate">ترجم</b><small data-t="translateSub"></small></span></button>
+    <button class="wide" data-act="money" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2 6h20v12H2V6Zm10 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM5 9v6h1V9H5Zm13 0v6h1V9h-1Z"/></svg></span><span><b data-t="money">كم الفلوس؟</b><small data-t="moneySub"></small></span></button>
+    <button class="wide" data-act="color" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.4 0 2-1 2-2 0-1.2-1.2-1.6-1.2-2.8 0-1.1.9-2 2-2h2.4A4.8 4.8 0 0 0 22 10.4C22 5.7 17.5 2 12 2Z"/></svg></span><span><b data-t="colors">الألوان</b><small data-t="colorsSub"></small></span></button>
+  </section>
+
+  <!-- NAVIGATE -->
+  <section data-tab="nav" class="list" hidden>
+    <h1 data-t="tabNav">تنقل</h1>
+    <button class="wide" id="walkBtn" data-act="walk" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="13" cy="4" r="2"/><path d="M10 8.5 7 11v4h2v-3l1.5-1.2L9 21h2.2l1.3-6 2 2v4h2v-5l-2.2-2.4.6-3.1A6 6 0 0 0 19 12v-2a4 4 0 0 1-3.4-1.9l-1-1.6A2 2 0 0 0 12.9 6c-.4 0-.8.1-1.1.3L10 8.5Z"/></svg></span><span><b id="walkText">وضع المشي</b><small data-t="walkSub"></small></span></button>
+    <button class="wide" data-act="where" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z"/></svg></span><span><b data-t="where">وين أنا؟</b><small data-t="whereSub"></small></span></button>
+    <button class="wide" data-act="savePlace" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2h12v20l-6-4-6 4V2Z"/></svg></span><span><b data-t="savePlace">احفظ مكاني</b><small data-t="savePlaceSub"></small></span></button>
+    <h2 data-t="myPlaces">أماكني</h2>
+    <div class="list" id="placesList"></div>
+  </section>
+
+  <!-- SAFETY -->
+  <section data-tab="safety" class="list" hidden>
+    <h1 data-t="tabSafety">الأمان</h1>
+    <button class="sos" data-act="sos" type="button"><svg viewBox="0 0 24 24" width="44" height="44" fill="currentColor" aria-hidden="true"><path d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg><b data-t="sos">استغاثة</b><span data-t="sosSub">اضغط مرتين</span></button>
+    <button class="wide" data-act="share" type="button"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 7 7h3v7h4V7h3l-5-5ZM4 14v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6h-2v6H6v-6H4Z"/></svg></span><span><b data-t="share">شارك موقعي</b><small id="trustedLabel"></small></span></button>
+    <label class="switch"><span><b data-t="handsFree">الاستماع الدائم</b><br><small data-t="handsFreeSub"></small></span><input type="checkbox" id="handsFreeToggle" checked></label>
+
+    <h2 data-t="settings">الإعدادات</h2>
+    <div class="field">
+      <label for="keyInput" data-t="keyLabel">مفتاح Anthropic</label>
+      <input id="keyInput" type="password" autocomplete="off" placeholder="sk-ant-...">
+      <small data-t="keyHelp"></small>
+    </div>
+    <div class="field">
+      <label for="modelSelect" data-t="modelLabel">نوع الوصف</label>
+      <select id="modelSelect">
+        <option value="claude-haiku-5-5" data-t="modelFast">سريع واقتصادي</option>
+        <option value="claude-opus-5-5" data-t="modelBest">أدق (أغلى وأبطأ)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="engineSelect" data-t="engineLabel">نوع الصوت</label>
+      <select id="engineSelect">
+        <option value="system" data-t="engineSystem">صوت الجوال (مجاني)</option>
+        <option value="eleven" data-t="engineEleven">صوت طبيعي ElevenLabs (كل اللغات)</option>
+      </select>
+      <div id="elevenFields" class="list" style="gap:6px" hidden>
+        <label for="elevenKey" data-t="elevenKeyLabel">مفتاح ElevenLabs</label>
+        <input id="elevenKey" type="password" autocomplete="off" placeholder="sk_...">
+        <button class="primary" id="loadVoices" type="button" data-t="loadVoices">حمّل الأصوات</button>
+      </div>
+      <label for="voiceSelect" data-t="voiceLabel">صوت بصير</label>
+      <select id="voiceSelect"></select>
+      <label for="rateSelect" data-t="rateLabel">سرعة الكلام</label>
+      <select id="rateSelect">
+        <option value="0.8" data-t="rateSlow">بطيء</option>
+        <option value="1" data-t="rateNormal">عادي</option>
+        <option value="1.2" data-t="rateFast">سريع</option>
+        <option value="1.4" data-t="rateFaster">أسرع</option>
+      </select>
+      <button class="primary" id="testVoice" type="button" data-t="testVoice">اسمع الصوت</button>
+      <small data-t="voiceHelp"></small>
+    </div>
+    <div class="field">
+      <label for="trustedName" data-t="trustedLabelTitle">الشخص الموثوق</label>
+      <input id="trustedName" type="text" autocomplete="off" data-ph="trustedNamePh">
+      <input id="trustedPhone" type="tel" autocomplete="off" placeholder="+9715XXXXXXXX">
+    </div>
+    <div class="field">
+      <label for="langSelect" data-t="langLabel">اللغة</label>
+      <select id="langSelect"></select>
+      <small data-t="langHelp"></small>
+    </div>
+    <button class="primary" id="saveSettings" type="button" data-t="save">حفظ</button>
+    <p class="note" data-t="safetyNote" data-html="1"></p>
+    <p class="note" data-t="privacyNote"></p>
+  </section>
+</main>
+
+<div class="tabbar">
+  <nav id="tabnav">
+    <button type="button" data-go="home" aria-current="page"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3L12 3Z"/></svg><span data-t="tabHome">الرئيسية</span></button>
+    <button type="button" data-go="read"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm2 9v2h8v-2H8Zm0 4v2h8v-2H8Z"/></svg><span data-t="tabRead">اقرأ</span></button>
+    <button type="button" data-go="nav"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 3 3 10.5l7.5 3 3 7.5L21 3Z"/></svg><span data-t="tabNav">تنقل</span></button>
+    <button type="button" data-go="safety"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm0 2.2V19.8c-3.4-1.2-6-5-6-8.8V6.4l6-2.2Z"/></svg><span data-t="tabSafety">الأمان</span></button>
+  </nav>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
