@@ -140,7 +140,7 @@
     if (!gKey) r7(false, "ناقص");
     else {
       try {
-        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", {
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent", {
           method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": gKey },
           body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "قل: تمام" }] }] })
         });

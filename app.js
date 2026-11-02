@@ -605,26 +605,33 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   }
 
   // ---------- Free AI: Google Gemini (hears and sees in one request) ----------
-  const GEMINI_MODEL = "gemini-flash-latest";
+  // Lite answers in about 2 seconds; the bigger model is the backup when Google is busy.
+  const GEMINI_MODELS = ["gemini-flash-lite-latest", "gemini-flash-latest"];
 
   /** Streams a Gemini reply. parts: Gemini content parts (image, audio, text). */
   async function geminiStream(parts, { onText = null, signal, maxTokens = 1500 } = {}) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
-    let res;
-    try {
-      res = await fetch(url, {
-        method: "POST", signal,
-        headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt() }] },
-          contents: [{ role: "user", parts }],
-          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.4 }
-        })
-      });
-    } catch (e) {
-      throw { code: e && e.name === "AbortError" ? "cancelled" : "network" };
+    let res = null, lastStatus = 0;
+    const attempt = async (model, fast) => {
+      const generationConfig = { maxOutputTokens: maxTokens, temperature: 0.4 };
+      if (fast) generationConfig.thinkingConfig = { thinkingLevel: "minimal" }; // answer straight away
+      try {
+        return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
+          method: "POST", signal,
+          headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt() }] }, contents: [{ role: "user", parts }], generationConfig })
+        });
+      } catch (e) {
+        throw { code: e && e.name === "AbortError" ? "cancelled" : "network" };
+      }
+    };
+    for (const model of GEMINI_MODELS) {
+      res = await attempt(model, true);
+      if (res.status === 400) res = await attempt(model, false); // model without the fast setting
+      if (res.ok) break;
+      lastStatus = res.status;
+      if (res.status === 401 || res.status === 403) break; // wrong key: another model won't help
     }
-    if (!res.ok) throw { code: res.status === 400 || res.status === 401 || res.status === 403 ? "badKey" : res.status === 429 ? "busyFree" : "server" };
+    if (!res.ok) throw { code: lastStatus === 401 || lastStatus === 403 || lastStatus === 400 ? "badKey" : lastStatus === 429 || lastStatus === 503 ? "busyFree" : "server" };
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let pending = "", full = "";
@@ -726,7 +733,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
             const line = header.slice(0, nl);
             const rest = header.slice(nl + 1);
             const m = line.match(/HEARD\s*\[([a-zA-Z-]*)\]\s*:?\s*(.*)/);
-            const heard = m ? m[2].trim() : "";
+            let heard = m ? m[2].trim() : "";
+            if (/^(null|none|\(?nothing\)?|-|…|\.\.\.)$/i.test(heard)) heard = "";
             const lang = m ? m[1].toLowerCase() : "";
             if (lang && lang !== "-" && LANGS.some(l => l.code === lang)) replyLang = lang;
             const intent = heard ? parse(afterWake(heard) ?? heard) : null;
@@ -1396,7 +1404,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   // Settings are hidden from the tab bar; the helper opens them with #settings in the address.
   function routeFromHash() {
     // Setup link: .../baseer/#key=AIza... saves the free key on this phone, then removes it from the address.
-    const m = location.hash.match(/^#key=([A-Za-z0-9_\-]{20,})$/);
+    const m = location.hash.match(/^#key=([A-Za-z0-9_.\-]{20,})$/); // AIza… or the newer AQ.… keys
     if (m) {
       saveGeminiKey(m[1]);
       history.replaceState(null, "", location.pathname);
