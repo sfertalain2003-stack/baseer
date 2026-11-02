@@ -21,8 +21,12 @@
     voiceEngine: store.get("voiceEngine", "system"), // "system" (free) or "eleven" (natural, every language)
     elevenKey: store.get("elevenKey", ""),
     elevenVoiceId: store.get("elevenVoiceId", ""),
-    elevenVoices: store.get("elevenVoices", [])    // [{ id, name }]
+    elevenVoices: store.get("elevenVoices", []),   // [{ id, name }]
+    geminiKey: store.get("geminiKey", "")          // free key from aistudio.google.com
   };
+  // Free mode: Google Gemini hears the voice and sees the photo. Otherwise Claude (paid key).
+  const useGemini = () => !!settings.geminiKey;
+  const hasAI = () => useGemini() || !!settings.key;
 
   // Languages Baseer can see and speak in. speech = recognition locale.
   const LANGS = [
@@ -85,7 +89,7 @@
         voicesLoaded: "حملت الأصوات. اختار صوت من القائمة، أو قل: بصير، غيّر الصوت.", elevenFailed: "ما قدرت أستخدم صوت ElevenLabs، فرجعت لصوت الجوال. تأكد من المفتاح.",
         needElevenKey: "حط مفتاح ElevenLabs أول.",
         firstWarn: "قبل نبدأ: أنا أداة مساعدة، ولا أغني عن العصا أو الكلب المرشد، ولا تعتمد عليّ لعبور الشوارع.",
-        needKey: "أحتاج مفتاح Anthropic. اطلب من اللي جهّز لك التطبيق يضيفه.",
+        needKey: "أحتاج مفتاح Gemini المجاني. اطلب من اللي جهّز لك التطبيق يضيفه.",
         looking: "لحظة، أشوف.", yes: "نعم؟", ok: "تمام.", saved: "حفظت.",
         noCamera: "ما قدرت أفتح الكاميرا. اسمح للمتصفح يستخدم الكاميرا.",
         noMic: "ما قدرت أفتح الميكروفون. تقدر تضغط الأزرار بدال الصوت.",
@@ -106,7 +110,7 @@
         sending: "جهزت رسالة بموقعك. اضغط إرسال.",
         notHeard: "ما سمعتك زين، حاول مرة ثانية.",
         tabs: { home: "الرئيسية.", read: "قسم اقرأ: قراءة، ترجمة، فلوس، ألوان.", nav: "قسم تنقل: وضع المشي، وين أنا، وأماكني.", safety: "قسم الأمان: استغاثة، مشاركة الموقع، والإعدادات." },
-        errors: { badKey: "المفتاح غلط. تأكد منه في الإعدادات.", refused: "ما أقدر أساعد في هذا الطلب.", network: "في مشكلة في الإنترنت. حاول مرة ثانية.", server: "الخدمة ما ردّت. حاول بعد شوي.", busy: "لحظة، أشتغل على الطلب السابق." }
+        errors: { busyFree: "الخدمة المجانية مشغولة الحين، حاول بعد دقيقة.", badKey: "المفتاح غلط. تأكد منه في الإعدادات.", refused: "ما أقدر أساعد في هذا الطلب.", network: "في مشكلة في الإنترنت. حاول مرة ثانية.", server: "الخدمة ما ردّت. حاول بعد شوي.", busy: "لحظة، أشتغل على الطلب السابق." }
       }
     },
     en: {
@@ -147,7 +151,7 @@
         needElevenKey: "Enter your ElevenLabs key first.",
         yesWords: "yes, yeah, sure, ok", noWords: "no, cancel",
         firstWarn: "Before we start: I'm an assistive tool, not a replacement for your cane or guide dog. Never rely on me to cross streets.",
-        needKey: "I need an Anthropic key. Ask the person who set up the app to add it.",
+        needKey: "I need the free Gemini key. Ask the person who set up the app to add it.",
         looking: "One moment, looking.", yes: "Yes?", ok: "OK.", saved: "Saved.",
         noCamera: "I couldn't open the camera. Allow the browser to use it.",
         noMic: "I couldn't open the microphone. You can use the buttons instead.",
@@ -168,7 +172,7 @@
         sending: "Your location message is ready. Press send.",
         notHeard: "I didn't catch that, please try again.",
         tabs: { home: "Home.", read: "Read: text, translation, money, colours.", nav: "Navigate: walking mode, where am I, and my places.", safety: "Safety: SOS, share location, and settings." },
-        errors: { badKey: "The key is wrong. Check it in Settings.", refused: "I can't help with that request.", network: "Internet problem. Please try again.", server: "The service didn't respond. Try again shortly.", busy: "One moment, still working on the last request." }
+        errors: { busyFree: "The free service is busy right now, try again in a minute.", badKey: "The key is wrong. Check it in Settings.", refused: "I can't help with that request.", network: "Internet problem. Please try again.", server: "The service didn't respond. Try again shortly.", busy: "One moment, still working on the last request." }
       }
     }
   };
@@ -600,6 +604,169 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     return full.trim();
   }
 
+  // ---------- Free AI: Google Gemini (hears and sees in one request) ----------
+  const GEMINI_MODEL = "gemini-flash-latest";
+
+  /** Streams a Gemini reply. parts: Gemini content parts (image, audio, text). */
+  async function geminiStream(parts, { onText = null, signal, maxTokens = 1500 } = {}) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
+    let res;
+    try {
+      res = await fetch(url, {
+        method: "POST", signal,
+        headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt() }] },
+          contents: [{ role: "user", parts }],
+          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.4 }
+        })
+      });
+    } catch (e) {
+      throw { code: e && e.name === "AbortError" ? "cancelled" : "network" };
+    }
+    if (!res.ok) throw { code: res.status === 400 || res.status === 401 || res.status === 403 ? "badKey" : res.status === 429 ? "busyFree" : "server" };
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "", full = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      pending += decoder.decode(value, { stream: true });
+      const lines = pending.split("\n");
+      pending = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        let event;
+        try { event = JSON.parse(line.slice(5)); } catch { continue; }
+        const cand = event.candidates && event.candidates[0];
+        const text = cand && cand.content && (cand.content.parts || []).map(p => p.text || "").join("");
+        if (text) { full += text; if (onText) onText(text); }
+        if (cand && (cand.finishReason === "SAFETY" || cand.finishReason === "PROHIBITED_CONTENT")) throw { code: "refused" };
+      }
+    }
+    return full.trim();
+  }
+
+  function frameParts(frame, prompt) {
+    if (frame && frame.light === "low") {
+      prompt += `\n\nNote: this photo was taken in the dark and was digitally brightened, so it may be grainy. Start by saying briefly that it is dark (${t().v.darkLead}). Say clearly when you are unsure.`;
+    }
+    const parts = [];
+    if (frame && frame.base64) parts.push({ inline_data: { mime_type: "image/jpeg", data: frame.base64 } });
+    parts.push({ text: prompt });
+    return parts;
+  }
+
+  /** One AI call for a photo task, with whichever engine is set up. */
+  function askAI(mode, frame, opts = {}) {
+    if (useGemini()) return geminiStream(frameParts(frame, taskPrompt(mode, opts.question || "")), { ...opts, maxTokens: mode === "hazards" ? 200 : 1500 });
+    return askClaude(mode, frame, opts);
+  }
+
+  /** Converts a recording (webm or mp4) to 16 kHz mono WAV, which Gemini understands everywhere. */
+  async function toWav(blob) {
+    const ctx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const rate = 16000;
+    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * rate), rate);
+    const src = offline.createBufferSource();
+    src.buffer = decoded; src.connect(offline.destination); src.start();
+    const pcm = (await offline.startRendering()).getChannelData(0);
+    const buf = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(buf);
+    const str = (o, txt) => { for (let i = 0; i < txt.length; i++) v.setUint8(o + i, txt.charCodeAt(i)); };
+    str(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); str(8, "WAVE"); str(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, pcm.length * 2, true);
+    for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
+    let bin = "";
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  // Requests that don't need the camera are done by Baseer itself.
+  const LOCAL = new Set(["where", "walkStart", "walkStop", "share", "nextVoice", "keepVoice", "faster", "slower", "repeat", "stop"]);
+
+  /**
+   * Free voice path: sends what the user said plus the current photo to Gemini in one go.
+   * Gemini writes "HEARD [lang]: words" on the first line, then the spoken answer.
+   */
+  async function voiceToGemini(blob) {
+    const V = t().v;
+    if (busy) return;
+    let audio;
+    try { audio = await toWav(blob); } catch { return; }
+    setBusy(true);
+    controller = new AbortController();
+    const frame = stream ? await captureForAI(1280) : null;
+    const instruction =
+`The audio is the user speaking to you. First write exactly one line in this form:
+HEARD [two-letter language code]: what they said, in their own words
+Then, on the following lines, answer them in the same language they spoke:
+- If they ask what is in front of them, what something is, or to take a picture or describe: ${taskPrompt("describe")}
+- If they ask a question about what they see (where is the door, what colour, read this, how much money): answer it from the photo.
+- If they ask something unrelated to the photo, answer briefly and kindly.
+If there is no clear speech in the audio, write only: HEARD [-]:`;
+    const parts = [{ inline_data: { mime_type: "audio/wav", data: audio } }];
+    if (frame && frame.light !== "dark" && frame.base64) parts.push({ inline_data: { mime_type: "image/jpeg", data: frame.base64 } });
+    parts.push({ text: instruction });
+
+    let header = "", headerDone = false, answering = false, handedOff = false;
+    const sentences = sentenceSpeaker();
+    try {
+      const text = await geminiStream(parts, {
+        signal: controller.signal,
+        onText: (chunk) => {
+          if (handedOff) return;
+          if (!headerDone) {
+            header += chunk;
+            const nl = header.indexOf("\n");
+            if (nl === -1) return;
+            headerDone = true;
+            const line = header.slice(0, nl);
+            const rest = header.slice(nl + 1);
+            const m = line.match(/HEARD\s*\[([a-zA-Z-]*)\]\s*:?\s*(.*)/);
+            const heard = m ? m[2].trim() : "";
+            const lang = m ? m[1].toLowerCase() : "";
+            if (lang && lang !== "-" && LANGS.some(l => l.code === lang)) replyLang = lang;
+            const intent = heard ? parse(afterWake(heard) ?? heard) : null;
+            if (!heard) { handedOff = true; controller.abort(); return; }
+            if (intent && (intent.type !== "question" && !(intent.type === "cmd" && !LOCAL.has(intent.cmd)))) {
+              handedOff = true; controller.abort();
+              setTimeout(() => run(intent), 0); // e.g. «وين أنا» or «استغاثة»
+              return;
+            }
+            answering = true;
+            speak(V.looking);
+            if (rest.trim()) { stopSpeaking(); sentences.add(rest); $("reply").textContent = rest; }
+            return;
+          }
+          if (answering) {
+            if (!$("reply").dataset.live) stopSpeaking();
+            sentences.add(chunk);
+            $("reply").dataset.live = ($("reply").dataset.live || "") + chunk;
+            $("reply").textContent = $("reply").dataset.live;
+          }
+        }
+      });
+      if (answering) {
+        sentences.flush();
+        lastReply = text.split("\n").slice(1).join(" ").trim();
+        show(lastReply);
+        vibrate(60);
+      }
+    } catch (e) {
+      if (handedOff || (e && (e.code === "cancelled" || e.name === "AbortError"))) return;
+      const msg = V.errors[e && e.code] || V.errors.server;
+      show(msg); speak(msg);
+    } finally {
+      $("reply").dataset.live = "";
+      controller = null;
+      setBusy(false);
+      if (!isSpeaking()) startListening();
+    }
+  }
+
   // ---------- Actions ----------
   function setBusy(on) {
     busy = on;
@@ -610,7 +777,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   async function lookAndSay(mode, question = "") {
     const V = t().v;
     if (busy) { speak(V.errors.busy); return; }
-    if (!settings.key) { speak(V.needKey); return; }
+    if (!hasAI()) { speak(V.needKey); return; }
     if (!stream) await startCamera();
     setBusy(true);
     speak(V.looking);
@@ -622,7 +789,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       if (frame.light === "dark") { show(V.tooDark); speak(V.tooDark); return; }
       const sentences = sentenceSpeaker();
       let first = true;
-      const text = await askClaude(mode, frame, {
+      const text = await askAI(mode, frame, {
         question, signal: controller.signal,
         onText: (chunk) => {
           if (first) { stopSpeaking(); first = false; } // cut "one moment" as soon as the answer starts
@@ -654,11 +821,11 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   // Walking mode: checks a frame every few seconds and speaks only about hazards.
   async function walkLoop() {
     while (walking) {
-      if (!busy && settings.key) {
+      if (!busy && hasAI()) {
         try {
           const frame = grabFrame(768);
           if (frame && frame.base64) {
-            const reply = await askClaude("hazards", frame);
+            const reply = await askAI("hazards", frame);
             if (walking && reply && !reply.includes("[silent]")) {
               lastHazard = reply;
               vibrate([250, 100, 250]);
@@ -673,7 +840,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   }
   function setWalking(on) {
     const V = t().v;
-    if (on && !settings.key) { speak(V.needKey); return; }
+    if (on && !hasAI()) { speak(V.needKey); return; }
     if (on === walking) return;
     walking = on;
     lastHazard = "";
@@ -910,9 +1077,14 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   // ---------- Baseer's own microphone (reliable on iPhone): voice detection + ElevenLabs speech-to-text ----------
   let sttFailures = 0;
   let mic = null; // { stream, analyser, data, recorder, chunks, state, since, quietSince, floor }
-  const useOwnMic = () => !!settings.elevenKey && !!window.MediaRecorder && !!navigator.mediaDevices;
+  const useOwnMic = () => (useGemini() || !!settings.elevenKey) && !!window.MediaRecorder && !!navigator.mediaDevices;
 
-  async function openMic() {
+  let openingMic = null;
+  function openMic() {
+    if (mic) return Promise.resolve(true);
+    return openingMic || (openingMic = openMicOnce().finally(() => { openingMic = null; }));
+  }
+  async function openMicOnce() {
     if (mic) return true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -925,7 +1097,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       mic = { stream, source, analyser, data: new Float32Array(analyser.fftSize), recorder: null, chunks: [], state: "idle", since: 0, quietSince: 0, floor: 0.01 };
       setInterval(micTick, 50);
       // If the microphone sends only silence for a while, it's blocked: say so.
-      setTimeout(() => { if (mic && mic.peak < 0.001) speak(t().v.micSilent); }, 6000);
+      setTimeout(() => { if (mic && !mic.everHeard) speak(t().v.micSilent); }, 8000);
       return true;
     } catch {
       return false;
@@ -967,6 +1139,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (!mic) return;
     const level = micLevel();
     mic.peak = Math.max(mic.peak || 0, level);
+    if (level > 0.003) mic.everHeard = true;
     const now = Date.now();
     const quietEnough = busy || isSpeaking() || speakingUntilIdle || !listening;
     if (mic.state === "idle") {
@@ -997,7 +1170,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     mic.recorder.onstop = () => {
       const blob = new Blob(mic.chunks, { type: mic.recorder.mimeType || "audio/webm" });
       mic.state = "idle"; mic.since = 0;
-      if (blob.size > 2000) transcribe(blob);
+      if (blob.size > 2000) (useGemini() ? voiceToGemini(blob) : transcribe(blob));
     };
     mic.recorder.start();
     mic.state = "recording";
@@ -1185,7 +1358,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     speak(V.welcome);
     requestWakeLock();
     await startCamera();
-    if (!settings.key) speak(V.needKey, { queue: true });
+    if (!hasAI()) speak(V.needKey, { queue: true });
   }
   document.addEventListener("pointerdown", startBaseer, { capture: true });
   // Touching the screen (outside a button) starts listening right away.
@@ -1247,6 +1420,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   $("rateSelect").addEventListener("change", (e) => { settings.rate = Number(e.target.value); store.set("rate", settings.rate); sampleVoice(); });
   $("testVoice").addEventListener("click", sampleVoice);
   $("saveSettings").addEventListener("click", () => {
+    settings.geminiKey = $("geminiKey").value.trim();
     settings.key = $("keyInput").value.trim();
     settings.model = $("modelSelect").value;
     settings.trustedName = $("trustedName").value.trim();
@@ -1264,6 +1438,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
 
   // Fill the settings form.
   $("keyInput").value = settings.key;
+  $("geminiKey").value = settings.geminiKey;
   $("modelSelect").value = settings.model;
   $("trustedName").value = settings.trustedName;
   $("trustedPhone").value = settings.trustedPhone;

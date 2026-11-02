@@ -134,7 +134,22 @@
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     r5(!!SR, SR ? "موجود" : "غير موجود في هذا المتصفح");
 
-    // 6) Anthropic
+    // 6) Gemini (free)
+    const r7 = row("مفتاح Gemini المجاني (السماع والوصف)");
+    const gKey = get("geminiKey") || "";
+    if (!gKey) r7(false, "ناقص");
+    else {
+      try {
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent", {
+          method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": gKey },
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: "قل: تمام" }] }] })
+        });
+        const body = await res.text();
+        r7(res.ok, res.ok ? "يشتغل" : `HTTP ${res.status}: ${body.slice(0, 160)}`);
+      } catch (e) { r7(false, "network: " + e.message); }
+    }
+
+    // 7) Anthropic
     const r6 = row("مفتاح Anthropic (الوصف)");
     if (!key) r6(false, "ناقص");
     else {
