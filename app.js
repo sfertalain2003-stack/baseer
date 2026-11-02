@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "14";
+const BASEER_VERSION = "15";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -1436,7 +1436,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   // The first touch anywhere starts Baseer: phones only allow sound, camera and mic after a tap.
   let started = false;
   async function startBaseer() {
-    if (started) return;
+    if (started) { if (!stream) startCamera(); return; }
     started = true;
     unlockAudio();
     if (useOwnMic()) openMic(); else primeMic();
@@ -1448,6 +1448,34 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     if (!hasAI()) speak(V.needKey, { queue: true });
   }
   document.addEventListener("pointerdown", startBaseer, { capture: true });
+  // Any later touch also re-enables sound, in case the phone blocked it when Baseer started by itself.
+  document.addEventListener("pointerdown", () => {
+    if (!started) return;
+    unlockAudio();
+    if (audioCtx && audioCtx.state !== "running") audioCtx.resume().catch(() => {});
+  }, { capture: true });
+
+  /**
+   * Start by itself, with no touch, when this site already has permanent permission for
+   * the camera and microphone (iPhone: Safari ▸ aA ▸ Website Settings ▸ Allow).
+   * While the microphone is in use, iPhone lets the page play sound without a tap.
+   */
+  async function autoStart() {
+    try {
+      const state = async (name) => (await navigator.permissions.query({ name })).state;
+      const [micPerm, camPerm] = await Promise.all([state("microphone").catch(() => "prompt"), state("camera").catch(() => "prompt")]);
+      debug(`permissions: mic ${micPerm}, camera ${camPerm}`);
+      if (micPerm !== "granted" || !hasAI()) return;
+      started = true;
+      await openMic();                      // microphone first: it unlocks sound on iPhone
+      if (audioCtx && audioCtx.state !== "running") await audioCtx.resume().catch(() => {});
+      unlockAudio();
+      speak(t().v.welcome);
+      requestWakeLock();
+      if (camPerm === "granted") startCamera();
+      setTimeout(() => { if (!listening && !isSpeaking()) startListening(); }, 1500);
+    } catch (e) { debug("autostart failed: " + (e && e.message)); started = false; }
+  }
   // Touching the screen (outside a button) starts listening right away.
   $("app").addEventListener("click", (e) => {
     if (!started || e.target.closest("button, input, select, label, form")) return;
@@ -1578,5 +1606,6 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
 
   debug("Baseer version " + BASEER_VERSION);
   routeFromHash();
+  autoStart();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
