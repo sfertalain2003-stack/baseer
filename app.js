@@ -82,7 +82,7 @@
         voicesLoaded: "حملت الأصوات. اختار صوت من القائمة، أو قل: بصير، غيّر الصوت.", elevenFailed: "ما قدرت أستخدم صوت ElevenLabs، فرجعت لصوت الجوال. تأكد من المفتاح.",
         needElevenKey: "حط مفتاح ElevenLabs أول.",
         firstWarn: "قبل نبدأ: أنا أداة مساعدة، ولا أغني عن العصا أو الكلب المرشد، ولا تعتمد عليّ لعبور الشوارع.",
-        needKey: "أحتاج مفتاح Anthropic. افتح قسم الأمان، وحط المفتاح تحت الإعدادات.",
+        needKey: "أحتاج مفتاح Anthropic. اطلب من اللي جهّز لك التطبيق يضيفه.",
         looking: "لحظة، أشوف.", yes: "نعم؟", ok: "تمام.", saved: "حفظت.",
         noCamera: "ما قدرت أفتح الكاميرا. اسمح للمتصفح يستخدم الكاميرا.",
         noMic: "ما قدرت أفتح الميكروفون. تقدر تضغط الأزرار بدال الصوت.",
@@ -141,7 +141,7 @@
         needElevenKey: "Enter your ElevenLabs key first.",
         yesWords: "yes, yeah, sure, ok", noWords: "no, cancel",
         firstWarn: "Before we start: I'm an assistive tool, not a replacement for your cane or guide dog. Never rely on me to cross streets.",
-        needKey: "I need an Anthropic key. Open the Safety tab and enter it under Settings.",
+        needKey: "I need an Anthropic key. Ask the person who set up the app to add it.",
         looking: "One moment, looking.", yes: "Yes?", ok: "OK.", saved: "Saved.",
         noCamera: "I couldn't open the camera. Allow the browser to use it.",
         noMic: "I couldn't open the microphone. You can use the buttons instead.",
@@ -251,7 +251,6 @@
     if (!lastReply) $("reply").textContent = L.idle;
     $("walkText").textContent = walking ? L.walkOff : L.walkOn;
     $("walkBtn").classList.toggle("on", walking);
-    $("trustedLabel").textContent = settings.trustedName || L.noTrusted;
     renderPlaces();
     fillVoiceSelect();
     updateChips();
@@ -596,7 +595,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   async function lookAndSay(mode, question = "") {
     const V = t().v;
     if (busy) { speak(V.errors.busy); return; }
-    if (!settings.key) { speak(V.needKey); showTab("safety"); return; }
+    if (!settings.key) { speak(V.needKey); return; }
     if (!stream) await startCamera();
     setBusy(true);
     speak(V.looking);
@@ -1027,6 +1026,9 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     lookAndSay(q ? "ask" : "describe", q);
   });
   $("lastBtn").addEventListener("click", () => speak(lastReply || t().v.nothing));
+  // Settings are hidden from the tab bar; the helper opens them with #settings in the address.
+  function routeFromHash() { showTab(location.hash === "#settings" ? "settings" : "home"); }
+  window.addEventListener("hashchange", routeFromHash);
   document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
     showTab(b.dataset.go);
     speak(t().v.tabs[b.dataset.go]);
@@ -1062,6 +1064,8 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (newLang !== settings.lang) return switchLanguage(newLang);
     applyLang();
     speak(t().v.saved);
+    history.replaceState(null, "", location.pathname); // back to the main screen
+    showTab("home");
   });
 
   // Fill the settings form.
@@ -1080,5 +1084,6 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && walking) requestWakeLock(); });
   applyLang();
 
+  routeFromHash();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
