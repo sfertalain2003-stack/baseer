@@ -243,6 +243,19 @@
     } catch { return false; }
   }
   const t = () => T[settings.lang] || T.en;
+  // Step-by-step log on screen when the address ends with ?debug (for finding problems on a real phone).
+  const debugOn = location.search.includes("debug");
+  function debug(msg) {
+    if (!debugOn) return;
+    let el = document.getElementById("debugLog");
+    if (!el) {
+      el = document.createElement("pre");
+      el.id = "debugLog";
+      el.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:30;max-height:38vh;overflow:auto;margin:0;padding:8px;background:rgba(0,0,0,.82);color:#9f9;font:12px/1.35 ui-monospace,monospace;white-space:pre-wrap;direction:ltr";
+      document.body.append(el);
+    }
+    el.textContent = new Date().toTimeString().slice(0, 8) + " " + msg + "\n" + el.textContent.slice(0, 4000);
+  }
 
   function applyLang() {
     const L = t();
@@ -333,10 +346,23 @@
     const style = chosenStyle();
     u.rate = (Number(settings.rate) || 1) * style.rate;
     u.pitch = style.pitch;
-    u.onend = u.onerror = () => setTimeout(afterSpeech, 250);
+    u.onend = u.onerror = () => { liveUtterances.delete(u); setTimeout(afterSpeech, 250); };
+    liveUtterances.add(u); // keeps it alive so iPhone still reports the end
     speakingUntilIdle = true;
+    speechStartedAt = Date.now();
     synth.speak(u);
   }
+  const liveUtterances = new Set();
+  let speechStartedAt = 0;
+  // Watchdog: if the phone forgot to say "finished", notice it ourselves and start listening.
+  setInterval(() => {
+    if (speakingUntilIdle && Date.now() - speechStartedAt > 1200 && !isSpeaking()) {
+      liveUtterances.clear();
+      debug("speech end missed, recovering");
+      afterSpeech();
+    }
+  }, 500);
+
   function isSpeaking() { return elevenBusy > 0 || (!!synth && (synth.speaking || synth.pending)); }
   function afterSpeech() {
     if (isSpeaking()) return;
@@ -702,7 +728,9 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     const V = t().v;
     if (busy) return;
     let audio;
-    try { audio = await toWav(blob); } catch { return; }
+    debug(`voice: ${blob.size} bytes ${blob.type}`);
+    try { audio = await toWav(blob); } catch (e) { debug("toWav failed: " + (e && e.message)); setMicStatus(""); speak(t().v.sttFailed); return; }
+    debug(`wav ready, camera ${stream ? "on" : "off"}`);
     setBusy(true);
     controller = new AbortController();
     const frame = stream ? await captureForAI(1280) : null;
@@ -733,6 +761,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
             const line = header.slice(0, nl);
             const rest = header.slice(nl + 1);
             const m = line.match(/HEARD\s*\[([a-zA-Z-]*)\]\s*:?\s*(.*)/);
+            debug("gemini: " + line);
             let heard = m ? m[2].trim() : "";
             if (/^(null|none|\(?nothing\)?|-|…|\.\.\.)$/i.test(heard)) heard = "";
             const lang = m ? m[1].toLowerCase() : "";
@@ -764,6 +793,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
         vibrate(60);
       }
     } catch (e) {
+      debug("gemini error: " + JSON.stringify(e && (e.code || e.message || e)));
       if (handedOff || (e && (e.code === "cancelled" || e.name === "AbortError"))) return;
       const msg = V.errors[e && e.code] || V.errors.server;
       show(msg); speak(msg);
@@ -771,6 +801,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
       $("reply").dataset.live = "";
       controller = null;
       setBusy(false);
+      setMicStatus("");
       if (!isSpeaking()) startListening();
     }
   }
@@ -1094,6 +1125,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
   async function openMicOnce() {
     if (mic) return true;
+    debug("opening mic");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -1107,7 +1139,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
       // If the microphone sends only silence for a while, it's blocked: say so.
       setTimeout(() => { if (mic && !mic.everHeard) speak(t().v.micSilent); }, 8000);
       return true;
-    } catch {
+    } catch (e) {
+      debug("mic failed: " + (e && e.name));
       return false;
     }
   }
@@ -1146,6 +1179,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   function micTick() {
     if (!mic) return;
     const level = micLevel();
+    if (debugOn && Date.now() % 1000 < 50) debug(`lvl ${level.toFixed(3)} floor ${mic.floor.toFixed(3)} state ${mic.state} listening ${listening} busy ${busy} speaking ${isSpeaking()}/${speakingUntilIdle}`);
     mic.peak = Math.max(mic.peak || 0, level);
     if (level > 0.003) mic.everHeard = true;
     const now = Date.now();
@@ -1169,6 +1203,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
 
   function startRecording() {
+    setMicStatus("🔴 أسمعك…");
     const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
     try {
       mic.recorder = type ? new MediaRecorder(mic.stream, { mimeType: type }) : new MediaRecorder(mic.stream);
@@ -1188,6 +1223,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
 
   function stopRecording() {
+    setMicStatus("⏳ لحظة…");
     if (mic.recorder && mic.recorder.state !== "inactive") { mic.state = "sending"; mic.recorder.stop(); }
   }
 
@@ -1225,8 +1261,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
         refreshMic().then(() => {
           if (busy || speakingUntilIdle || isSpeaking()) return;
           listening = true;
+          setMicStatus("🎙️ تكلّم");
           if (cueNext || fromTap) { listenCue(); vibrate(30); cueNext = false; }
-          updateChips();
         });
       }
       return;
@@ -1336,13 +1372,15 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
 
   // ---------- UI wiring ----------
+  function setMicStatus(text) { micStatus = text; updateChips(); debug("mic: " + text); }
+  let micStatus = "";
   function updateChips() {
     const L = t();
     $("camDot").classList.toggle("on", !!stream);
     $("camText").textContent = stream ? L.camOn : L.camOff;
     const micOn = (!!SR || useOwnMic()) && settings.handsFree;
     $("micDot").classList.toggle("on", micOn && listening);
-    $("micText").textContent = micOn ? L.micOn : L.micOff;
+    $("micText").textContent = micStatus || (micOn ? L.micOn : L.micOff);
   }
   function showTab(name) {
     document.querySelectorAll("[data-tab]").forEach(s => { s.hidden = s.dataset.tab !== name; });
