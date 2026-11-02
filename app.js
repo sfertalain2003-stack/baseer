@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "11";
+const BASEER_VERSION = "12";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -90,7 +90,7 @@ const BASEER_VERSION = "11";
         voicesLoaded: "حملت الأصوات. اختار صوت من القائمة، أو قل: بصير، غيّر الصوت.", elevenFailed: "ما قدرت أستخدم صوت ElevenLabs، فرجعت لصوت الجوال. تأكد من المفتاح.",
         needElevenKey: "حط مفتاح ElevenLabs أول.",
         firstWarn: "قبل نبدأ: أنا أداة مساعدة، ولا أغني عن العصا أو الكلب المرشد، ولا تعتمد عليّ لعبور الشوارع.",
-        needKey: "أحتاج مفتاح Gemini المجاني. اطلب من اللي جهّز لك التطبيق يضيفه.",
+        needKey: "أحتاج مفتاح Gemini المجاني. في الشاشة زر: الصق مفتاح Gemini.",
         looking: "لحظة، أشوف.", yes: "نعم؟", ok: "تمام.", saved: "حفظت.",
         noCamera: "ما قدرت أفتح الكاميرا. اسمح للمتصفح يستخدم الكاميرا.",
         noMic: "ما قدرت أفتح الميكروفون. تقدر تضغط الأزرار بدال الصوت.",
@@ -1476,8 +1476,17 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     store.set("geminiKey", key);
     $("geminiKey").value = key;
     $("geminiStatus").textContent = `✅ محفوظ: …${key.slice(-4)}`;
-    speak("حفظت المفتاح.");
+    $("keySetup").hidden = true;
+    speak("حفظت المفتاح. تكلّم وأنا أسمعك.");
   }
+  // Each place on iPhone (Safari, home-screen icon, in-app browser) has its own memory:
+  // when this one has no key, show a one-tap paste box on the main screen.
+  $("keySetup").hidden = hasAI();
+  $("pasteGeminiHome").addEventListener("click", async () => {
+    try { saveGeminiKey(await navigator.clipboard.readText()); }
+    catch { $("geminiKeyHome").focus(); }
+  });
+  $("geminiKeyHome").addEventListener("input", (e) => { if (e.target.value.trim().length > 20) saveGeminiKey(e.target.value); });
   $("pasteGemini").addEventListener("click", async () => {
     try { saveGeminiKey(await navigator.clipboard.readText()); }
     catch { $("geminiKey").focus(); $("geminiStatus").textContent = "اضغطي مطولاً داخل الخانة واختاري «لصق»."; }

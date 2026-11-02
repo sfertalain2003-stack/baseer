@@ -147,6 +147,13 @@
       <button type="submit" data-t="askBtn">اسأل</button>
     </form>
 
+    <div class="field" id="keySetup" hidden>
+      <b>جهّز بصير (مرة وحدة)</b>
+      <small>انسخي مفتاح Gemini، وبعدها اضغطي الزر.</small>
+      <button class="primary" id="pasteGeminiHome" type="button">📋 الصق مفتاح Gemini</button>
+      <input id="geminiKeyHome" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="أو الصقيه هنا">
+    </div>
+
     <button class="last" id="lastBtn" type="button">
       <div class="text"><small data-t="lastLabel">آخر وصف:</small><p id="reply" role="status" aria-live="polite"></p></div>
       <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>
@@ -240,6 +247,6 @@
   </nav>
 </div>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
