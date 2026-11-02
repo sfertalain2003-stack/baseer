@@ -895,7 +895,115 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       r.start();
     } catch {}
   }
+  // ---------- Baseer's own microphone (reliable on iPhone): voice detection + ElevenLabs speech-to-text ----------
+  let mic = null; // { stream, analyser, data, recorder, chunks, state, since, quietSince, floor }
+  const useOwnMic = () => !!settings.elevenKey && !!window.MediaRecorder && !!navigator.mediaDevices;
+
+  async function openMic() {
+    if (mic) return true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      mic = { stream, analyser, data: new Float32Array(analyser.fftSize), recorder: null, chunks: [], state: "idle", since: 0, quietSince: 0, floor: 0.01 };
+      setInterval(micTick, 50);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Diagnostics for testing: open the app with ?debug and call __baseerMic() in the console.
+  if (location.search.includes("debug")) window.__baseerMic = () => ({ open: !!mic, state: mic && mic.state, floor: mic && mic.floor, level: mic && micLevel(), listening, busy, speaking: isSpeaking(), ctx: audioCtx && audioCtx.state });
+
+  function micLevel() {
+    mic.analyser.getFloatTimeDomainData(mic.data);
+    let sum = 0;
+    for (const v of mic.data) sum += v * v;
+    return Math.sqrt(sum / mic.data.length);
+  }
+
+  /** Runs 20 times a second: notices when you start and stop talking. */
+  function micTick() {
+    if (!mic) return;
+    const level = micLevel();
+    const now = Date.now();
+    const quietEnough = busy || isSpeaking() || speakingUntilIdle || !listening;
+    if (mic.state === "idle") {
+      if (quietEnough) { mic.since = 0; return; }
+      // Learns the room's background noise: follows quiet levels quickly, loud ones barely.
+      mic.floor = level < mic.floor ? mic.floor * 0.9 + level * 0.1 : mic.floor * 0.998 + level * 0.002;
+      const threshold = Math.max(0.02, mic.floor * 3);
+      if (level > threshold) {
+        if (!mic.since) mic.since = now;
+        if (now - mic.since > 120) startRecording();
+      } else mic.since = 0;
+    } else if (mic.state === "recording") {
+      const threshold = Math.max(0.015, mic.floor * 2.2);
+      if (level > threshold) mic.quietSince = 0;
+      else if (!mic.quietSince) mic.quietSince = now;
+      const pausedLongEnough = mic.quietSince && now - mic.quietSince > 900;
+      if (pausedLongEnough || now - mic.since > 12000) stopRecording();
+    }
+  }
+
+  function startRecording() {
+    const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+    try {
+      mic.recorder = type ? new MediaRecorder(mic.stream, { mimeType: type }) : new MediaRecorder(mic.stream);
+    } catch { return; }
+    mic.chunks = [];
+    mic.recorder.ondataavailable = (e) => { if (e.data && e.data.size) mic.chunks.push(e.data); };
+    mic.recorder.onstop = () => {
+      const blob = new Blob(mic.chunks, { type: mic.recorder.mimeType || "audio/webm" });
+      mic.state = "idle"; mic.since = 0;
+      if (blob.size > 2000) transcribe(blob);
+    };
+    mic.recorder.start();
+    mic.state = "recording";
+    mic.since = Date.now();
+    mic.quietSince = 0;
+    updateChips();
+  }
+
+  function stopRecording() {
+    if (mic.recorder && mic.recorder.state !== "inactive") { mic.state = "sending"; mic.recorder.stop(); }
+  }
+
+  /** Turns the recording into text with ElevenLabs, then acts on it. */
+  async function transcribe(blob) {
+    const ext = blob.type.includes("mp4") || blob.type.includes("aac") ? "m4a" : "webm";
+    const form = new FormData();
+    form.append("model_id", "scribe_v1");
+    form.append("file", blob, `speech.${ext}`);
+    form.append("language_code", settings.lang === "fil" ? "tl" : settings.lang);
+    try {
+      const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", { method: "POST", headers: { "xi-api-key": settings.elevenKey }, body: form });
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      const text = (data.text || "").replace(/\(.*?\)|\[.*?\]/g, "").trim(); // drop "(laughs)", "[music]"
+      if (text.length > 1) handleHeard(text);
+    } catch {
+      // Speech-to-text failed: fall back to the phone's own recognition for next time.
+      settings.useOwnMic = false;
+    }
+  }
+
   function startListening(fromTap = false) {
+    if (useOwnMic() && settings.useOwnMic !== false) {
+      if (!settings.handsFree || busy || speakingUntilIdle || isSpeaking()) return;
+      if (!mic) { openMic().then(ok => { if (ok) startListening(fromTap); else { settings.useOwnMic = false; startListening(fromTap); } }); return; }
+      if (!listening) {
+        listening = true;
+        if (cueNext || fromTap) { listenCue(); vibrate(30); cueNext = false; }
+        updateChips();
+      }
+      return;
+    }
     if (!SR || !settings.handsFree || listening || busy || speakingUntilIdle || isSpeaking()) return;
     if (needTapToListen && !fromTap) return;
     recognition = new SR();
@@ -927,6 +1035,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     updateChips();
   }
   function stopListening() {
+    if (mic && mic.state === "recording" && mic.recorder) { mic.state = "idle"; mic.recorder.onstop = null; try { mic.recorder.stop(); } catch {} }
     if (recognition && listening) { try { recognition.abort(); } catch {} }
     listening = false;
     updateChips();
@@ -1004,7 +1113,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     const L = t();
     $("camDot").classList.toggle("on", !!stream);
     $("camText").textContent = stream ? L.camOn : L.camOff;
-    const micOn = !!SR && settings.handsFree;
+    const micOn = (!!SR || useOwnMic()) && settings.handsFree;
     $("micDot").classList.toggle("on", micOn && listening);
     $("micText").textContent = micOn ? L.micOn : L.micOff;
   }
@@ -1024,7 +1133,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     if (started) return;
     started = true;
     unlockAudio();
-    primeMic();
+    if (useOwnMic()) openMic(); else primeMic();
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
     const V = t().v;
     speak(V.welcome);
