@@ -36,7 +36,6 @@
   const langInfo = (code) => LANGS.find(l => l.code === code) || LANGS[1];
   const RTL = new Set(["ar", "fa", "ur"]);
   let places = store.get("places", []);
-  let warned = store.get("warned", false);
 
   let busy = false;
   let walking = false;
@@ -91,7 +90,7 @@
         darkLead: "المكان مظلم، بس أشوف",
         nothing: "ما في شي أكرره بعد.", stopped: "سكت.",
         ask: "قل سؤالك، أو اكتبه واضغط اسأل.",
-        walkOn: "وضع المشي شغال. خل الجوال على صدرك والكاميرا لقدام، وأنبهك إذا شفت خطر. استمر باستخدام العصا، وسكوتي ما يعني إن الطريق آمن.",
+        walkOn: "وضع المشي شغال. خل الجوال على صدرك والكاميرا لقدام، وأنبهك إذا شفت خطر.",
         walkOff: "وقفت وضع المشي.",
         locating: "لحظة، أحدد مكانك.", noLocation: "ما قدرت أحدد موقعك. اسمح للمتصفح يستخدم الموقع.",
         youAre: (p) => `أنت في ${p}.`,
@@ -150,7 +149,7 @@
         darkLead: "It's dark here, but I can make out",
         nothing: "Nothing to repeat yet.", stopped: "Stopped.",
         ask: "Say your question, or type it and tap Ask.",
-        walkOn: "Walking mode is on. Hold the phone at chest height facing forward and I'll warn you about hazards I see. Keep using your cane; my silence doesn't mean the way is safe.",
+        walkOn: "Walking mode is on. Hold the phone at chest height facing forward and I'll warn you about hazards I see.",
         walkOff: "Walking mode is off.",
         locating: "One moment, finding where you are.", noLocation: "I couldn't get your location. Allow the browser to use it.",
         youAre: (p) => `You're at ${p}.`,
@@ -990,16 +989,20 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   let wakeLock = null;
   async function requestWakeLock() { try { wakeLock = await navigator.wakeLock.request("screen"); } catch {} }
 
-  $("startOverlay").addEventListener("click", async () => {
-    $("startOverlay").hidden = true;
+  // The first touch anywhere starts Baseer: phones only allow sound, camera and mic after a tap.
+  let started = false;
+  async function startBaseer() {
+    if (started) return;
+    started = true;
     unlockAudio();
     const V = t().v;
-    speak(warned ? V.welcome : V.firstWarn + " " + V.welcome); // first speech must start inside a tap
-    warned = true; store.set("warned", true);
+    speak(V.welcome);
     requestWakeLock();
     await startCamera();
     if (!settings.key) speak(V.needKey, { queue: true });
-  });
+  }
+  document.addEventListener("pointerdown", startBaseer, { capture: true });
+  document.addEventListener("click", startBaseer, { capture: true });
   $("describeBtn").addEventListener("click", () => lookAndSay("describe"));
   document.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
     switch (b.dataset.act) {
