@@ -15,7 +15,7 @@
     model: store.get("model", "claude-haiku-5-5"),
     trustedName: store.get("trustedName", ""),
     trustedPhone: store.get("trustedPhone", ""),
-    handsFree: store.get("handsFree", true),
+    handsFree: true, // always listening: a blind user can't find a switch, so it never turns itself off
     voiceName: store.get("voiceName", ""),   // chosen by the user; empty = best available
     rate: store.get("rate", 0.9), // a little slower is easier to follow
     voiceEngine: store.get("voiceEngine", "system"), // "system" (free) or "eleven" (natural, every language)
@@ -1519,7 +1519,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   $("engineSelect").value = settings.voiceEngine;
   $("elevenKey").value = settings.elevenKey;
   if (!["ar", "en"].includes(settings.lang)) loadTranslation(settings.lang);
-  $("handsFreeToggle").checked = settings.handsFree;
+  $("handsFreeToggle").checked = true;
+  store.set("handsFree", true); // clears an old "off" saved by earlier versions
   $("rateSelect").value = String(settings.rate);
   if (synth) { synth.getVoices(); synth.onvoiceschanged = fillVoiceSelect; }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && walking) requestWakeLock(); });
