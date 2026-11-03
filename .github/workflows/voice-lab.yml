@@ -1,0 +1,54 @@
+name: Voice lab (Piper Arabic samples)
+
+on:
+  push:
+    branches: [voice-lab]
+    paths: [".github/workflows/voice-lab.yml", "voice-lab/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Install Piper
+        run: pip install piper-tts==1.8.0
+      - name: Download every Arabic Piper voice and its model card
+        run: |
+          mkdir -p models out
+          curl -sSL -o voices.json https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json
+          python - <<'PY'
+          import json, urllib.request, os
+          d = json.load(open("voices.json"))
+          base = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+          report = []
+          for key, v in d.items():
+              if not key.startswith("ar"): continue
+              for f, meta in v["files"].items():
+                  name = os.path.basename(f)
+                  urllib.request.urlretrieve(base + f, "models/" + name)
+                  report.append(f"{key}\t{name}\t{meta['size_bytes']}")
+          open("out/voices.txt", "w").write("\n".join(report) + "\n")
+          PY
+          cat out/voices.txt
+          for card in models/MODEL_CARD*; do echo "== $card"; cat "$card"; done || true
+          cp models/MODEL_CARD* out/ 2>/dev/null || true
+          ls models
+      - name: Make samples and time them
+        run: |
+          python voice-lab/make_samples.py models out
+          cat out/timings.txt
+      - name: Save results to this branch
+        run: |
+          mkdir -p voice-lab/results
+          cp out/* voice-lab/results/
+          git config user.name "baseer-voice-lab"
+          git config user.email "voice-lab@users.noreply.github.com"
+          git add voice-lab/results
+          git commit -m "Voice lab results [skip ci]" || echo "nothing to commit"
+          git push
