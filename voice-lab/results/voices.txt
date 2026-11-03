@@ -1,0 +1,6 @@
+ar_JO-kareem-low	ar_JO-kareem-low.onnx	63201294
+ar_JO-kareem-low	ar_JO-kareem-low.onnx.json	5022
+ar_JO-kareem-low	MODEL_CARD	274
+ar_JO-kareem-medium	ar_JO-kareem-medium.onnx	63201294
+ar_JO-kareem-medium	ar_JO-kareem-medium.onnx.json	5024
+ar_JO-kareem-medium	MODEL_CARD	283

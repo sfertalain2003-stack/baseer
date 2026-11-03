@@ -1,0 +1,11 @@
+ar_JO-kareem-low	welcome_diacritized	normal	load 1.60s	synth 0.24s	audio 1.92s	RTF 0.124
+ar_JO-kareem-low	describe_diacritized	normal	load 1.60s	synth 0.52s	audio 12.82s	RTF 0.040
+ar_JO-kareem-low	describe_diacritized	slower	load 1.60s	synth 0.56s	audio 14.74s	RTF 0.038
+ar_JO-kareem-low	numbers_diacritized	normal	load 1.60s	synth 0.38s	audio 9.66s	RTF 0.040
+ar_JO-kareem-low	describe_plain	normal	load 1.60s	synth 0.50s	audio 12.77s	RTF 0.039
+ar_JO-kareem-medium	welcome_diacritized	normal	load 1.58s	synth 0.27s	audio 2.14s	RTF 0.126
+ar_JO-kareem-medium	describe_diacritized	normal	load 1.58s	synth 0.67s	audio 13.28s	RTF 0.050
+ar_JO-kareem-medium	describe_diacritized	slower	load 1.58s	synth 0.72s	audio 14.43s	RTF 0.050
+ar_JO-kareem-medium	numbers_diacritized	normal	load 1.58s	synth 0.47s	audio 9.18s	RTF 0.051
+ar_JO-kareem-medium	describe_plain	normal	load 1.58s	synth 0.63s	audio 12.81s	RTF 0.049
+peak memory 421 MB, CPU: 4 cores (GitHub runner)
