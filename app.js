@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "21";
+const BASEER_VERSION = "22";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -323,7 +323,7 @@ const BASEER_VERSION = "21";
     if (!synth) return [];
     const prefix = settings.lang;
     const list = synth.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith(prefix));
-    const score = (v) => (/premium|enhanced|natural|neural|google|siri/i.test(v.name) ? 0 : 1);
+    const score = (v) => (/premium|enhanced|natural|neural|google|siri|محسّن|محسن|ممتاز/i.test(v.name) ? 0 : 1);
     return list.sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name));
   }
 
@@ -343,7 +343,7 @@ const BASEER_VERSION = "21";
     const order = prefix === "ar" ? ["ar-ae", "ar-sa", "ar-001", "ar"] : prefix === "en" ? ["en-gb", "en-us", "en"] : [code.toLowerCase(), prefix];
     for (const want of order) {
       const matches = voices.filter(v => v.lang && v.lang.replace("_", "-").toLowerCase().startsWith(want));
-      const best = matches.find(v => /premium|enhanced|natural|google|siri/i.test(v.name)) || matches[0];
+      const best = matches.find(v => /premium|enhanced|natural|google|siri|محسّن|محسن|ممتاز/i.test(v.name)) || matches[0];
       if (best) return best;
     }
     return null;
@@ -365,7 +365,7 @@ const BASEER_VERSION = "21";
   }
 
   /** Speaks text. queue=true adds after current speech (streamed sentences). */
-  function speak(text, { queue = false } = {}) {
+  function speak(text, { queue = false, answer = false } = {}) {
     if (!text) return;
     if (settings.voiceEngine === "eleven" && settings.elevenKey && settings.elevenVoiceId) {
       stopListening();
@@ -373,12 +373,11 @@ const BASEER_VERSION = "21";
     }
     // Human-sounding Google voice whenever there is internet. Short instant cues ("one moment") use it
     // only once it has been fetched before, so Baseer never waits to say them.
-    const natural = useGemini() && settings.naturalVoice !== false && !phoneOnly && navigator.onLine !== false;
-    if (natural && (text.length > 14 || ttsCache.has(text))) {
+    const natural = naturalVoiceNow() && !phoneOnly;
+    if (natural && (answer || text.length > 14 || ttsCache.has(text))) {
       stopListening();
       return elevenSpeak(text, queue, fetchGeminiAudio);
     }
-    if (natural) fetchGeminiAudio(text).catch(() => {}); // ready for next time
     // Free Google voice: used when Safari won't let the phone voice talk (no touch yet), or there is no phone voice.
     if (useGemini() && !phoneOnly && (synthBlocked || !synth)) {
       stopListening();
@@ -413,6 +412,10 @@ const BASEER_VERSION = "21";
     }
   }
   let synthBlocked = false, touchedOnce = false, phoneOnly = false;
+  // Google's free natural voice allows only a few sentences a minute for everyone together.
+  // When it says "too many", use the phone voice for a minute instead of failing sentence by sentence.
+  let naturalPausedUntil = 0;
+  const naturalVoiceNow = () => useGemini() && settings.naturalVoice !== false && navigator.onLine !== false && Date.now() > naturalPausedUntil;
   const ttsCache = new Map(); // short sentences said often (e.g. "one moment") -> audio
   document.addEventListener("pointerdown", () => { touchedOnce = true; synthBlocked = false; }, { capture: true });
 
@@ -439,6 +442,7 @@ const BASEER_VERSION = "21";
         generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.geminiVoice || "Sulafat" } } } }
       })
     });
+    if (res.status === 429) naturalPausedUntil = Date.now() + 60000;
     if (!res.ok) throw new Error(String(res.status));
     const data = await res.json();
     const part = data.candidates[0].content.parts.find(p => p.inlineData).inlineData;
@@ -564,7 +568,13 @@ const BASEER_VERSION = "21";
   /** Splits streamed text into sentences so speaking starts after the first one. */
   function sentenceSpeaker() {
     let buffer = "";
+    let saidFirst = false, held = ""; // natural voice: first sentence at once, the rest in one go (fewer requests)
     const enders = /[.!?؟؛\n]/;
+    const out = (sentence) => {
+      if (naturalVoiceNow() && saidFirst) { held += (held ? " " : "") + sentence; return; }
+      saidFirst = true;
+      speak(sentence, { queue: true, answer: true });
+    };
     return {
       add(chunk) {
         buffer += chunk;
@@ -572,10 +582,14 @@ const BASEER_VERSION = "21";
         while ((m = buffer.search(enders)) !== -1) {
           const sentence = buffer.slice(0, m + 1).trim();
           buffer = buffer.slice(m + 1);
-          if (sentence.length > 1) speak(sentence, { queue: true });
+          if (sentence.length > 1) out(sentence);
         }
       },
-      flush() { const rest = buffer.trim(); buffer = ""; if (rest) speak(rest, { queue: true }); }
+      flush() {
+        const rest = buffer.trim(); buffer = "";
+        if (rest) out(rest);
+        if (held) { const all = held; held = ""; speak(all, { queue: true, answer: true }); }
+      }
     };
   }
 
