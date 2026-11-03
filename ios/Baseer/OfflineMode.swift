@@ -41,6 +41,11 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
     private var working = false
     private var lastSpoken = ""
     private var stopped = false
+    private var lastUnknownLabels: [String] = []
+    // When the phone can't recognise words offline, any spoken sentence counts as "what's this?".
+    private var soundMode = false
+    private var loudBuffers = 0
+    private var quietBuffers = 0
 
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -210,7 +215,8 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
             }
             DispatchQueue.main.async {
                 self.working = false
-                self.show(answer)
+                let extra = task == .describe && !self.lastUnknownLabels.isEmpty ? "\n(" + self.lastUnknownLabels.joined(separator: ", ") + ")" : ""
+                self.show(answer + extra)
                 self.say(answer)
             }
         }
@@ -248,37 +254,36 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         let handler = VNImageRequestHandler(cvPixelBuffer: frame, orientation: .right, options: [:])
         let classify = VNClassifyImageRequest()
         let humans = VNDetectHumanRectanglesRequest()
+        let faces = VNDetectFaceRectanglesRequest()
         let text = VNDetectTextRectanglesRequest()
-        try? handler.perform([classify, humans, text])
+        try? handler.perform([classify, humans, faces, text])
 
         var parts: [String] = []
 
-        // People, with where they are.
-        let people = humans.results ?? []
-        if !people.isEmpty {
-            let places = people.map { position(of: $0.boundingBox) }
-            if people.count == 1 {
-                parts.append(s("فيه شخص \(places[0])", "There is a person \(places[0])"))
-            } else {
-                parts.append(s("فيه \(people.count) أشخاص", "There are \(people.count) people"))
-            }
+        // People, with where they are (whole bodies, or faces when someone is close).
+        let bodies = (humans.results ?? []).map(\.boundingBox)
+        let faceBoxes = (faces.results ?? []).map(\.boundingBox)
+        let people = bodies.count >= faceBoxes.count ? bodies : faceBoxes
+        if people.count == 1 {
+            parts.append(s("فيه شخص \(position(of: people[0]))", "There is a person \(position(of: people[0]))"))
+        } else if people.count > 1 {
+            parts.append(s("فيه \(people.count) أشخاص", "There are \(people.count) people"))
         }
 
-        // Things Apple's model is fairly sure about, translated when we know the word.
+        // Things Apple's on-phone model thinks are there. Only words we can say correctly are spoken.
         let labels = (classify.results ?? [])
-            .filter { $0.confidence > 0.3 }
+            .filter { $0.confidence > 0.12 }
             .map(\.identifier)
             .filter { !Self.skipLabels.contains($0) }
         var named: [String] = []
+        var unknown: [String] = []
         for label in labels {
-            if isArabic {
-                if let word = Self.arabic[label], !named.contains(word) { named.append(word) }
-            } else {
-                let word = label.replacingOccurrences(of: "_", with: " ")
-                if !named.contains(word) { named.append(word) }
-            }
+            let word: String? = isArabic ? Self.arabic[label] : label.replacingOccurrences(of: "_", with: " ")
+            if let word { if !named.contains(word) { named.append(word) } }
+            else if unknown.count < 4 { unknown.append(label) }
             if named.count == 4 { break }
         }
+        lastUnknownLabels = unknown
         if !named.isEmpty {
             parts.append(s("وأشوف غالباً: ", "I probably see: ") + named.joined(separator: s("، ", ", ")))
         }
@@ -287,11 +292,11 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
             parts.append(s("وفيه كتابة، قول «اقرأ» عشان أقرأها", "There is some text; say \"read\" to hear it"))
         }
 
+        // Always say something useful: at least the main colour in front of the camera.
         if parts.isEmpty {
-            return s("ما قدرت أعرف اللي قدامك بدون إنترنت. جرب «اقرأ» أو «الألوان»، أو وجّه الكاميرا لشي ثاني.",
-                     "I can't tell what's in front of you without internet. Try \"read\" or \"colours\", or point the camera elsewhere.")
+            return s("ما عرفت الشي بالضبط بدون إنترنت. ", "I can't tell exactly what it is without internet. ") + colors(frame)
         }
-        return parts.joined(separator: s(". ", ". ")) + s(". هذا وصف بسيط بدون إنترنت.", ". This is a simple description without internet.")
+        return parts.joined(separator: ". ") + s(". هذا وصف بسيط بدون إنترنت.", ". This is a simple description without internet.")
     }
 
     private func position(of box: CGRect) -> String {
@@ -302,7 +307,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
     }
 
     /// Labels too vague to be useful when spoken.
-    private static let skipLabels: Set<String> = ["structure", "material", "textile", "wood_processed", "liquid", "art", "adult", "people", "conveyance"]
+    private static let skipLabels: Set<String> = ["structure", "material", "textile", "wood_processed", "liquid", "art", "conveyance", "machine"]
 
     /// Arabic words for common labels from Apple's image model. Unknown labels are left out rather than guessed.
     private static let arabic: [String: String] = [
@@ -326,6 +331,16 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         "dog": "كلب", "cat": "قطة", "bird": "طير", "animal": "حيوان",
         "toy": "لعبة", "ball": "كرة", "box": "صندوق", "pillow": "مخدة", "blanket": "بطانية", "curtain": "ستارة",
         "mirror": "مراية", "sink": "مغسلة", "toilet": "حمام", "refrigerator": "ثلاجة", "oven": "فرن", "microwave": "مايكرويف",
+        "tableware": "أدوات مائدة", "consumer_electronics": "أجهزة إلكترونية", "computer_keyboard": "لوحة مفاتيح",
+        "computer_mouse": "ماوس", "interior_room": "غرفة", "room": "غرفة", "ceiling": "سقف", "floor": "أرضية", "wall": "جدار",
+        "decoration": "زينة", "vase": "مزهرية", "houseplant": "نبتة", "potted_plant": "نبتة", "cushion": "مخدة",
+        "shelf": "رف", "bookshelf": "رف كتب", "cabinet": "خزانة", "wardrobe": "دولاب", "appliance": "جهاز منزلي",
+        "light_fixture": "إضاءة", "chandelier": "ثريا", "painting": "لوحة مرسومة", "picture_frame": "برواز",
+        "tile": "بلاط", "tiles": "بلاط", "countertop": "رخامة مطبخ", "faucet": "حنفية", "towel": "منشفة",
+        "container": "علبة", "jar": "مرطبان", "can": "علبة", "packaged_goods": "منتج معبأ", "drink": "مشروب",
+        "coffee": "قهوة", "tea": "شاي", "water": "ماء", "juice": "عصير", "candy": "حلاوة", "chocolate": "شوكولاتة",
+        "hand": "يد", "people": "أشخاص", "child": "طفل", "baby": "طفل صغير", "adult": "شخص بالغ",
+        "fence": "سياج", "wheel": "عجلة", "tire": "إطار", "traffic_light": "إشارة مرور", "pole": "عمود",
         "money": "فلوس", "coin": "عملة", "medicine": "دواء", "pill": "حبوب", "carpet": "سجادة", "rug": "سجادة",
     ]
 
@@ -399,8 +414,9 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         UIAccessibility.post(notification: .layoutChanged, argument: resultLabel)
     }
 
-    private func say(_ text: String) {
+    private func say(_ text: String, queue: Bool = false) {
         stopListening()
+        if !queue { synthesizer.stopSpeaking(at: .immediate) }
         lastSpoken = text
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: isArabic ? "ar-SA" : "en-US")
@@ -426,14 +442,18 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
                 self.recognizer = recognizer
                 self.canListen = status == .authorized && recognizer != nil
                 if !self.canListen {
-                    self.say(self.s("السماع بدون إنترنت مو متوفر بهاللغة في جوالك، فالمس الأزرار.",
-                                    "Listening without internet isn't available for this language on your phone, so use the buttons."))
+                    self.soundMode = true
+                    self.say(self.s("جوالك ما يفهم الكلام بدون إنترنت، فأي كلمة تقولها أعتبرها «ما هذا؟». وللقراءة والألوان المس الأزرار تحت الدائرة.",
+                                    "Your phone can't understand speech without internet, so anything you say counts as \"what's this\". For reading and colours, use the buttons below the circle."), queue: true)
+                } else {
+                    self.startListening()
                 }
             }
         }
     }
 
     private func startListening() {
+        if soundMode { startSoundListening(); return }
         guard canListen, !working, !stopped, recognitionTask == nil, let recognizer else { return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -460,6 +480,30 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
                 }
             }
         }
+    }
+
+    /// Listens for someone talking (by loudness only): after a short sentence and a pause, describes.
+    private func startSoundListening() {
+        guard !working, !stopped, !audioEngine.isRunning, !synthesizer.isSpeaking else { return }
+        loudBuffers = 0; quietBuffers = 0
+        let input = audioEngine.inputNode
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+            guard let self, let data = buffer.floatChannelData?[0] else { return }
+            let n = Int(buffer.frameLength)
+            var sum: Float = 0
+            for i in 0..<n { sum += data[i] * data[i] }
+            let level = n > 0 ? (sum / Float(n)).squareRoot() : 0
+            if level > 0.03 { self.loudBuffers += 1; self.quietBuffers = 0 }
+            else if self.loudBuffers > 0 { self.quietBuffers += 1 }
+            // About a quarter second of voice, then about two thirds of a second of quiet.
+            if self.loudBuffers >= 10 && self.quietBuffers >= 28 {
+                self.loudBuffers = 0; self.quietBuffers = 0
+                DispatchQueue.main.async { self.stopListening(); self.run(.describe) }
+            }
+        }
+        audioEngine.prepare()
+        do { try audioEngine.start() } catch { input.removeTap(onBus: 0) }
     }
 
     private func stopListening() {
