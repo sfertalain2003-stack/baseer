@@ -1,6 +1,7 @@
 import UIKit
 import WebKit
 import AVFoundation
+import Network
 
 /// Baseer for iPhone: opens the Baseer web app full screen, with the camera and
 /// microphone already allowed, so it starts listening as soon as it opens.
@@ -31,6 +32,9 @@ final class BaseerViewController: UIViewController, WKUIDelegate, WKNavigationDe
     private var webView: WKWebView!
     private let retryButton = UIButton(type: .system)
     private var loadFailed = false
+    private let network = NWPathMonitor()
+    private var networkUp = true
+    private var offline: OfflineViewController?
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .darkContent }
 
@@ -67,6 +71,17 @@ final class BaseerViewController: UIViewController, WKUIDelegate, WKNavigationDe
         retryButton.addTarget(self, action: #selector(reload), for: .touchUpInside)
         view.addSubview(retryButton)
 
+        // No internet: switch to the simple mode that runs on the phone; switch back when it returns.
+        network.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.networkUp = path.status == .satisfied
+                if self.networkUp { if self.offline != nil { self.leaveOffline() } }
+                else { self.enterOffline() }
+            }
+        }
+        network.start(queue: DispatchQueue(label: "baseer.network"))
+
         NotificationCenter.default.addObserver(self, selector: #selector(cameBack),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
         reload()
@@ -79,7 +94,44 @@ final class BaseerViewController: UIViewController, WKUIDelegate, WKNavigationDe
     }
 
     @objc private func cameBack() {
-        if loadFailed { reload() }
+        if offline != nil, networkUp { leaveOffline() }
+        else if loadFailed, offline == nil { reload() }
+    }
+
+    private func enterOffline() {
+        guard offline == nil else { return }
+        // Free the camera and microphone for the on-phone mode.
+        webView.load(URLRequest(url: URL(string: "about:blank")!))
+        let vc = OfflineViewController()
+        addChild(vc)
+        vc.view.frame = view.bounds
+        vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(vc.view)
+        vc.didMove(toParent: self)
+        offline = vc
+        retryButton.isHidden = true
+        UIAccessibility.post(notification: .screenChanged, argument: vc.view)
+    }
+
+    private func leaveOffline() {
+        guard let vc = offline else { return }
+        vc.shutDown()
+        vc.willMove(toParent: nil)
+        vc.view.removeFromSuperview()
+        vc.removeFromParent()
+        offline = nil
+        reload()
+    }
+
+    // Remember the chosen language, so the offline mode speaks it too.
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard webView.url?.host == Self.home.host else { return }
+        webView.evaluateJavaScript("localStorage.getItem('lang')") { value, _ in
+            if let raw = value as? String {
+                let lang = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                if !lang.isEmpty { UserDefaults.standard.set(lang, forKey: "baseerLang") }
+            }
+        }
     }
 
     // Camera and microphone: the person already said yes to the iPhone prompt, so don't ask again.
@@ -125,7 +177,6 @@ final class BaseerViewController: UIViewController, WKUIDelegate, WKNavigationDe
 
     private func showOffline() {
         loadFailed = true
-        retryButton.isHidden = false
-        UIAccessibility.post(notification: .screenChanged, argument: retryButton)
+        enterOffline()
     }
 }
