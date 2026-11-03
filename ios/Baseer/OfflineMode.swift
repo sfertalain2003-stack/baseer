@@ -63,7 +63,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         super.viewDidAppear(animated)
         stopped = false
         startCamera()
-        say(s("ما في إنترنت. أشتغل بالوضع البسيط: قول «ما هذا؟» أو «اقرأ» أو «الألوان»، أو المس الدائرة.",
+        say(s("لا يوجد اتصال بالإنترنت، لذلك أعمل بالوضع البسيط وبصوت الجهاز. قل: ما هذا؟ أو: اقرأ، أو: الألوان، أو المس الدائرة.",
               "No internet. I'm in simple mode: say \"what's this\", \"read\" or \"colours\", or touch the circle."))
         prepareListening()
     }
@@ -99,7 +99,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         describeButton.setTitleColor(.white, for: .normal)
         describeButton.titleLabel?.font = .systemFont(ofSize: 44, weight: .bold)
         describeButton.titleLabel?.adjustsFontSizeToFitWidth = true
-        describeButton.accessibilityLabel = s("ما هذا؟ يوصف الأشياء والأشخاص أمامك", "What's this? Names things and people in front of you")
+        describeButton.accessibilityLabel = s("ما هذا؟ يصف الأشياء والأشخاص أمامك", "What's this? Names things and people in front of you")
         describeButton.addTarget(self, action: #selector(describeTapped), for: .touchUpInside)
 
         for (button, title, action) in [(readButton, s("اقرأ", "Read"), #selector(readTapped)),
@@ -201,7 +201,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
     private func run(_ task: Job) {
         guard !working else { return }
         guard let frame = currentFrame() else {
-            say(s("الكاميرا ما اشتغلت بعد. جرب بعد ثانية.", "The camera isn't ready yet. Try again in a second."))
+            say(s("الكاميرا لم تعمل بعد. حاول بعد ثانية.", "The camera isn't ready yet. Try again in a second."))
             return
         }
         working = true
@@ -237,17 +237,17 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         }
         let handler = VNImageRequestHandler(cvPixelBuffer: frame, orientation: .right, options: [:])
         do { try handler.perform([request]) } catch {
-            return s("ما قدرت أقرأ. جرب مرة ثانية.", "I couldn't read that. Please try again.")
+            return s("عذراً، لم أتمكن من القراءة. حاول مرة أخرى.", "I couldn't read that. Please try again.")
         }
         let lines = (request.results ?? [])
             .filter { ($0.topCandidates(1).first?.confidence ?? 0) > 0.3 }
             .sorted { $0.boundingBox.midY > $1.boundingBox.midY } // top of the page first
             .compactMap { $0.topCandidates(1).first?.string }
         if lines.isEmpty {
-            return s("ما شفت كتابة واضحة. قرّب الجوال شوي وجرب مرة ثانية.",
+            return s("لم أجد كتابة واضحة. قرّب الجهاز قليلاً وحاول مرة أخرى.",
                      "I don't see clear text. Move a little closer and try again.")
         }
-        return lines.joined(separator: "\n")
+        return s("النص المكتوب هو: ", "The text says: ") + lines.joined(separator: "\n")
     }
 
     // MARK: What's this? (people, common things, text, light)
@@ -267,9 +267,9 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         let faceBoxes = (faces.results ?? []).map(\.boundingBox)
         let people = bodies.count >= faceBoxes.count ? bodies : faceBoxes
         if people.count == 1 {
-            parts.append(s("فيه شخص \(position(of: people[0]))", "There is a person \(position(of: people[0]))"))
+            parts.append(s("يبدو أن هناك شخصاً \(position(of: people[0]))", "There is a person \(position(of: people[0]))"))
         } else if people.count > 1 {
-            parts.append(s("فيه \(people.count) أشخاص", "There are \(people.count) people"))
+            parts.append(s("يبدو أن هناك \(people.count) أشخاص", "There are \(people.count) people"))
         }
 
         // Things Apple's on-phone model thinks are there. Only words we can say correctly are spoken.
@@ -287,16 +287,16 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         }
         lastUnknownLabels = unknown
         if !named.isEmpty {
-            parts.append(s("وأشوف غالباً: ", "I probably see: ") + named.joined(separator: s("، ", ", ")))
+            parts.append(s("وأرى على الأرجح: ", "I probably see: ") + named.joined(separator: s("، ", ", ")))
         }
 
         if let boxes = text.results, boxes.count >= 2 {
-            parts.append(s("وفيه كتابة، قول «اقرأ» عشان أقرأها", "There is some text; say \"read\" to hear it"))
+            parts.append(s("وهناك كتابة، قل: اقرأ، لأقرأها لك", "There is some text; say \"read\" to hear it"))
         }
 
         // Always say something useful: at least the main colour in front of the camera.
         if parts.isEmpty {
-            return s("ما عرفت الشي بالضبط. ", "I can't tell exactly what it is. ") + colors(frame)
+            return s("عذراً، لم أتمكن من تحديد الشيء بوضوح. ", "I can't tell exactly what it is. ") + colors(frame)
         }
         return parts.joined(separator: ". ") + "."
     }
@@ -305,7 +305,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         let x = box.midX
         if x < 0.35 { return s("على يسارك", "on your left") }
         if x > 0.65 { return s("على يمينك", "on your right") }
-        return s("قدامك", "in front of you")
+        return s("أمامك", "in front of you")
     }
 
     /// Labels too vague to be useful when spoken.
@@ -370,17 +370,17 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         }
         let total = side * side
         if brightness / Double(total) < 0.08 {
-            return s("المكان مظلم جداً، ما أقدر أعرف الألوان.", "It's too dark to tell the colours.")
+            return s("المكان مظلم جداً، ولا أستطيع تمييز الألوان.", "It's too dark to tell the colours.")
         }
         let top = counts.sorted { $0.value > $1.value }.filter { Double($0.value) / Double(total) > 0.18 }.prefix(2).map(\.key)
         guard let first = top.first else {
-            return s("الألوان مخلوطة وما قدرت أحددها. قرّب الشي من الكاميرا.", "The colours are mixed. Bring the object closer.")
+            return s("الألوان متداخلة ولم أتمكن من تحديدها. قرّب الشيء من الكاميرا.", "The colours are mixed. Bring the object closer.")
         }
         if top.count == 2 {
-            return s("اللون غالباً \(first)، وفيه \(top[1]). الإضاءة ممكن تغيّر الألوان شوي.",
+            return s("اللون على الأرجح \(first)، مع شيء من \(top[1]). قد تؤثر الإضاءة في الألوان قليلاً.",
                      "Mostly \(first), with some \(top[1]). Lighting can change colours a little.")
         }
-        return s("اللون غالباً \(first). الإضاءة ممكن تغيّر الألوان شوي.", "Mostly \(first). Lighting can change colours a little.")
+        return s("اللون على الأرجح \(first). قد تؤثر الإضاءة في الألوان قليلاً.", "Mostly \(first). Lighting can change colours a little.")
     }
 
     private func colorName(_ r: Double, _ g: Double, _ b: Double) -> String {
@@ -420,7 +420,9 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
     private lazy var bestVoice: AVSpeechSynthesisVoice? = {
         let prefix = isArabic ? "ar" : "en"
         let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix(prefix) }
-        return voices.max { $0.quality.rawValue < $1.quality.rawValue }
+        // Highest quality first, then a man's voice.
+        func rank(_ v: AVSpeechSynthesisVoice) -> Int { v.quality.rawValue * 2 + (v.gender == .male ? 1 : 0) }
+        return voices.max { rank($0) < rank($1) }
             ?? AVSpeechSynthesisVoice(language: isArabic ? "ar-SA" : "en-US")
     }()
 
@@ -453,7 +455,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
                 self.canListen = status == .authorized && recognizer != nil
                 if !self.canListen {
                     self.soundMode = true
-                    self.say(self.s("جوالك ما يفهم الكلام بدون إنترنت، فأي كلمة تقولها أعتبرها «ما هذا؟». وللقراءة والألوان المس الأزرار تحت الدائرة.",
+                    self.say(self.s("جهازك لا يفهم الكلام دون إنترنت، لذلك سأعدّ أي كلمة تقولها طلباً لوصف ما أمامك. وللقراءة والألوان المس الأزرار تحت الدائرة.",
                                     "Your phone can't understand speech without internet, so anything you say counts as \"what's this\". For reading and colours, use the buttons below the circle."), queue: true)
                 } else {
                     self.startListening()
@@ -541,7 +543,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
     private func handle(_ command: Command) {
         switch command {
         case .task(let task): run(task)
-        case .repeatLast: say(lastSpoken.isEmpty ? s("ما قلت شي بعد.", "Nothing yet.") : lastSpoken)
+        case .repeatLast: say(lastSpoken.isEmpty ? s("لم أقل شيئاً بعد.", "Nothing yet.") : lastSpoken)
         case .stop:
             synthesizer.stopSpeaking(at: .immediate)
             startListening()
