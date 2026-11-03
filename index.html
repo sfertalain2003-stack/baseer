@@ -45,6 +45,13 @@
   .langPick { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 16px; background: var(--card); border-radius: 999px; font-size: 1.3rem; }
   .langPick select { flex: 1; min-width: 0; border: 0; background: transparent; color: inherit; font: 600 1.1rem system-ui, sans-serif; min-height: 52px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .consent { position: fixed; inset: 0; z-index: 60; border: 0; margin: 0; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+    padding: calc(24px + env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
+    background: var(--accent); color: var(--on-accent); font-family: var(--font); text-align: center; cursor: pointer; }
+  .consent[hidden] { display: none; }
+  .consent svg { width: 120px; height: 72px; }
+  .consent-text { font-size: 1.5rem; font-weight: 500; line-height: 1.6; max-width: 26ch; }
+  .consent-go { font-size: 1.9rem; font-weight: 700; line-height: 1.4; }
   .chip .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--muted); flex: none; }
   .chip .dot.on { background: var(--ok); }
   .chip span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -244,6 +251,13 @@
   </section>
 </main>
 
+<!-- One-time consent: shown the first time only. The whole screen is one button. -->
+<button id="consent" class="consent" type="button" hidden>
+  <svg viewBox="0 0 100 60" aria-hidden="true"><path fill="currentColor" d="M50 2C27 2 9 18 2 30c7 12 25 28 48 28s41-16 48-28C91 18 73 2 50 2Zm0 47a19 19 0 1 1 0-38 19 19 0 0 1 0 38Z"/><circle cx="50" cy="30" r="9" fill="currentColor"/></svg>
+  <span class="consent-text" data-t="consentText">عشان أوصف لك، أرسل الصورة وصوتك لخدمة الذكاء الاصطناعي من Google، وما أحفظها.</span>
+  <span class="consent-go" data-t="consentGo">موافق؟ المس الشاشة في أي مكان</span>
+</button>
+
 <div class="tabbar">
   <nav id="tabnav">
     <button type="button" data-go="home" aria-current="page"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 2 11h3v9h5v-6h4v6h5v-9h3L12 3Z"/></svg><span data-t="tabHome">الرئيسية</span></button>
@@ -252,6 +266,6 @@
   </nav>
 </div>
 
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

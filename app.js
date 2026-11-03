@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "19";
+const BASEER_VERSION = "20";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -37,9 +37,16 @@ const BASEER_VERSION = "19";
         headers: { "content-type": "application/json", "x-goog-api-key": settings.geminiKey }
       };
     }
-    return { url: `${SHARED_SERVER}?model=${encodeURIComponent(model)}&mode=${stream ? "stream" : "once"}`, headers: { "content-type": "application/json" } };
+    return { url: `${SHARED_SERVER}?model=${encodeURIComponent(model)}&mode=${stream ? "stream" : "once"}`, headers: { "content-type": "application/json", "x-baseer-device": DEVICE_ID } };
   }
   const hasAI = () => useGemini() || !!settings.key;
+  // A random id for this phone, so the shared server can share its hourly allowance fairly. Not linked to the person.
+  const DEVICE_ID = store.get("deviceId") || (() => {
+    const id = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+    store.set("deviceId", id); return id;
+  })();
+  /** Has the person agreed (once) that photos and voice go to the AI service? */
+  const hasConsent = () => !!store.get("aiConsent", false);
 
   // Languages Baseer can see and speak in. speech = recognition locale.
   const LANGS = [
@@ -74,6 +81,7 @@ const BASEER_VERSION = "19";
       tabHome: "الرئيسية", tabRead: "اقرأ", tabNav: "تنقل", tabSafety: "الأمان",
       readText: "اقرأ النص", readSub: "لوحات، أوراق، قوائم طعام", translate: "ترجم", translateSub: "يترجم النص اللي جدامك",
       money: "كم الفلوس؟", moneySub: "يعرف الأوراق النقدية ويجمعها", colors: "الألوان", colorsSub: "لون الشي أو الملابس",
+      consentText: "عشان أوصف لك، أرسل الصورة وصوتك لخدمة الذكاء الاصطناعي من Google، وما أحفظها.", consentGo: "موافق؟ المس الشاشة في أي مكان",
       walkOn: "وضع المشي", walkOff: "وقف وضع المشي", walkSub: "ينبهك إذا شاف خطر قدامك",
       where: "وين أنا؟", whereSub: "اسم الشارع والمنطقة", savePlace: "احفظ مكاني", savePlaceSub: "قل: بصير، احفظ المكان باسم البيت",
       myPlaces: "أماكني", noPlaces: "ما في أماكن محفوظة بعد.", goThere: "اضغط عشان أوديك",
@@ -92,6 +100,9 @@ const BASEER_VERSION = "19";
       langName: "Arabic (clear Modern Standard Arabic that sounds natural to an Emirati listener)", caution: "انتبه:",
       v: {
         welcome: "أهلاً، أنا بصير. تكلّم وأنا أسمعك. قول مثلاً: ما هذا؟",
+        consentAsk: "أهلاً، أنا بصير. عشان أوصف لك، أرسل الصورة وصوتك لخدمة الذكاء الاصطناعي من Google، وما أحفظها. إذا موافق، المس الشاشة في أي مكان.",
+        consentThanks: "شكراً. تكلّم وأنا أسمعك. قول مثلاً: ما هذا؟",
+        walkNote: "تنبيه مرة وحدة: وضع المشي تجريبي، وما يغني عن العصا.",
         tapToTalk: "إذا ما سمعتك، المس الشاشة وتكلّم.",
         sttFailed: "ما قدرت أفهم الكلام، عيده مرة ثانية.", sttKey: "مفتاح ElevenLabs ما يشتغل، فما أقدر أسمعك.",
         micSilent: "الميكروفون ما يوصلني صوت. اسمح لـ Safari بالميكروفون من الإعدادات.",
@@ -123,7 +134,7 @@ const BASEER_VERSION = "19";
         sending: "جهزت رسالة بموقعك. اضغط إرسال.",
         notHeard: "ما سمعتك زين، حاول مرة ثانية.",
         tabs: { home: "الرئيسية.", read: "قسم اقرأ: قراءة، ترجمة، فلوس، ألوان.", nav: "قسم تنقل: وضع المشي، وين أنا، وأماكني.", safety: "قسم الأمان: استغاثة، مشاركة الموقع، والإعدادات." },
-        errors: { busyFree: "الخدمة المجانية مشغولة الحين، حاول بعد دقيقة.", badKey: "المفتاح غلط. تأكد منه في الإعدادات.", refused: "ما أقدر أساعد في هذا الطلب.", network: "في مشكلة في الإنترنت. حاول مرة ثانية.", server: "الخدمة ما ردّت. حاول بعد شوي.", busy: "لحظة، أشتغل على الطلب السابق." }
+        errors: { busyFree: "الخدمة المجانية مشغولة الحين، حاول بعد دقيقة.", badKey: "المفتاح غلط. تأكد منه في الإعدادات.", refused: "ما أقدر أساعد في هذا الطلب.", network: "في مشكلة في الإنترنت. حاول مرة ثانية.", offline: "ما في إنترنت. تأكد من الاتصال وجرب مرة ثانية.", server: "الخدمة ما ردّت. حاول بعد شوي.", busy: "لحظة، أشتغل على الطلب السابق." }
       }
     },
     en: {
@@ -135,6 +146,7 @@ const BASEER_VERSION = "19";
       tabHome: "Home", tabRead: "Read", tabNav: "Navigate", tabSafety: "Safety",
       readText: "Read text", readSub: "Signs, papers, menus", translate: "Translate", translateSub: "Translates the text in front of you",
       money: "Count money", moneySub: "Identifies and adds up banknotes", colors: "Colours", colorsSub: "Colour of an object or clothing",
+      consentText: "To describe things for you, I send the photo and your voice to Google's AI service, and I don't keep them.", consentGo: "Agree? Touch the screen anywhere",
       walkOn: "Walking mode", walkOff: "Stop walking mode", walkSub: "Warns you about hazards ahead",
       where: "Where am I?", whereSub: "Street and area name", savePlace: "Save this place", savePlaceSub: "Say: Baseer, save this place as home",
       myPlaces: "My places", noPlaces: "No saved places yet.", goThere: "Tap to go there",
@@ -153,6 +165,9 @@ const BASEER_VERSION = "19";
       langName: "English", caution: "Caution:",
       v: {
         welcome: "Hi, I'm Baseer. Just talk, I'm listening. For example, say: what is this?",
+        consentAsk: "Hi, I'm Baseer. To describe things for you, I send the photo and your voice to Google's AI service, and I don't keep them. If you agree, touch the screen anywhere.",
+        consentThanks: "Thank you. Just talk, I'm listening. For example, say: what is this?",
+        walkNote: "One-time note: walking mode is experimental and does not replace your cane.",
         tapToTalk: "If I don't hear you, touch the screen and speak.",
         sttFailed: "I couldn't understand that, please say it again.", sttKey: "The ElevenLabs key isn't working, so I can't hear you.",
         micSilent: "The microphone isn't sending me any sound. Allow Safari to use the microphone in Settings.",
@@ -185,7 +200,7 @@ const BASEER_VERSION = "19";
         sending: "Your location message is ready. Press send.",
         notHeard: "I didn't catch that, please try again.",
         tabs: { home: "Home.", read: "Read: text, translation, money, colours.", nav: "Navigate: walking mode, where am I, and my places.", safety: "Safety: SOS, share location, and settings." },
-        errors: { busyFree: "The free service is busy right now, try again in a minute.", badKey: "The key is wrong. Check it in Settings.", refused: "I can't help with that request.", network: "Internet problem. Please try again.", server: "The service didn't respond. Try again shortly.", busy: "One moment, still working on the last request." }
+        errors: { busyFree: "The free service is busy right now, try again in a minute.", badKey: "The key is wrong. Check it in Settings.", refused: "I can't help with that request.", network: "Internet problem. Please try again.", offline: "No internet. Check your connection and try again.", server: "The service didn't respond. Try again shortly.", busy: "One moment, still working on the last request." }
       }
     }
   };
@@ -673,7 +688,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
     try {
       res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body), signal });
     } catch (e) {
-      throw { code: e && e.name === "AbortError" ? "cancelled" : "network" };
+      throw { code: e && e.name === "AbortError" ? "cancelled" : (navigator.onLine === false ? "offline" : "network") };
     }
     if (!res.ok) throw { code: res.status === 401 || res.status === 403 ? "badKey" : "server" };
 
@@ -721,7 +736,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
           body: JSON.stringify({ systemInstruction: { parts: [{ text: systemPrompt() }] }, contents: [{ role: "user", parts }], generationConfig })
         });
       } catch (e) {
-        throw { code: e && e.name === "AbortError" ? "cancelled" : "network" };
+        throw { code: e && e.name === "AbortError" ? "cancelled" : (navigator.onLine === false ? "offline" : "network") };
       }
     };
     /**
@@ -762,7 +777,10 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       lastStatus = res.status;
       if (res.status === 401 || res.status === 403) break; // wrong key: another model won't help
     }
-    if (!res.ok) throw { code: lastStatus === 401 || lastStatus === 403 || lastStatus === 400 ? "badKey" : lastStatus === 429 || lastStatus === 503 ? "busyFree" : "server" };
+    if (!res.ok) {
+      const keyProblem = settings.geminiKey && (lastStatus === 401 || lastStatus === 403 || lastStatus === 400);
+      throw { code: keyProblem ? "badKey" : lastStatus === 429 || lastStatus === 503 ? "busyFree" : navigator.onLine === false ? "offline" : "server" };
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let pending = "", full = "";
@@ -832,6 +850,7 @@ Give directions relative to the user: ahead, to your left, to your right, about 
   async function voiceToGemini(blob) {
     const V = t().v;
     if (busy) return;
+    if (!hasConsent()) { askConsent(); return; } // nothing leaves the phone before the person agrees
     setBusy(true);
     listenCue(); vibrate(40);
     speak(V.gotIt); // instant "one moment", so there's never a silent wait
@@ -923,6 +942,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     const V = t().v;
     if (busy) { speak(V.errors.busy); return; }
     if (!hasAI()) { speak(V.needKey); return; }
+    if (!hasConsent()) { askConsent(); return; }
+    if (navigator.onLine === false) { show(V.errors.offline); speak(V.errors.offline); return; }
     if (!stream) await startCamera();
     setBusy(true);
     speak(V.looking);
@@ -986,11 +1007,13 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   function setWalking(on) {
     const V = t().v;
     if (on && !hasAI()) { speak(V.needKey); return; }
+    if (on && !hasConsent()) { askConsent(); return; }
     if (on === walking) return;
     walking = on;
     lastHazard = "";
     applyLang();
-    speak(on ? V.walkOn : V.walkOff);
+    if (on && !store.get("walkNoted", false)) { store.set("walkNoted", true); speak(V.walkNote); speak(V.walkOn, { queue: true }); }
+    else speak(on ? V.walkOn : V.walkOff);
     if (on) { requestWakeLock(); walkLoop(); }
   }
 
@@ -1003,8 +1026,10 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
   async function placeName(c) {
     try {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${c.latitude}&lon=${c.longitude}&accept-language=${settings.lang}`;
-      const j = await (await fetch(url)).json();
+      const url = `${SHARED_SERVER}?mode=geocode&lat=${c.latitude}&lon=${c.longitude}&lang=${encodeURIComponent(settings.lang)}`;
+      const res = await fetch(url, { headers: { "x-baseer-device": DEVICE_ID } });
+      if (!res.ok) return null;
+      const j = await res.json();
       const a = j.address || {};
       const parts = [a.road, a.neighbourhood || a.suburb || a.quarter, a.city || a.town || a.village].filter(Boolean);
       return [...new Set(parts)].join("، ") || j.display_name;
@@ -1363,6 +1388,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   }
 
   function startListening(fromTap = false) {
+    if (!hasConsent()) return; // the microphone waits until the person has agreed
     if (useOwnMic() && settings.useOwnMic !== false) {
       if (!settings.handsFree || busy || speakingUntilIdle || isSpeaking()) return;
       if (!mic) { openMic().then(ok => { if (ok) startListening(fromTap); else { settings.useOwnMic = false; startListening(fromTap); } }); return; }
@@ -1504,6 +1530,27 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
 
   // The first touch anywhere starts Baseer: phones only allow sound, camera and mic after a tap.
   let started = false;
+  // ---------- One-time consent ----------
+  let consentShownAt = 0;
+  function askConsent() {
+    const box = $("consent");
+    if (box.hidden) consentShownAt = Date.now();
+    box.hidden = false;
+    box.focus();
+    stopListening();
+    speak(t().v.consentAsk);
+  }
+  function giveConsent() {
+    // The touch that opened this screen must not count as agreeing.
+    if (Date.now() - consentShownAt < 1500) return;
+    store.set("aiConsent", true);
+    $("consent").hidden = true;
+    stopSpeaking();
+    speak(t().v.consentThanks);
+    if (!stream) startCamera();
+  }
+  $("consent").addEventListener("click", giveConsent);
+
   async function startBaseer() {
     if (started) { if (!stream) startCamera(); return; }
     started = true;
@@ -1511,7 +1558,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     if (useOwnMic()) openMic(); else primeMic();
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
     const V = t().v;
-    speak(V.welcome);
+    if (hasConsent()) speak(V.welcome); else askConsent();
     requestWakeLock();
     await startCamera();
     if (!hasAI()) speak(V.needKey, { queue: true });
@@ -1539,7 +1586,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
       await openMic();                      // microphone first: it unlocks sound on iPhone
       if (audioCtx && audioCtx.state !== "running") await audioCtx.resume().catch(() => {});
       unlockAudio();
-      speak(t().v.welcome);
+      if (hasConsent()) speak(t().v.welcome); else askConsent();
       requestWakeLock();
       if (camPerm === "granted") startCamera();
       setTimeout(() => { if (!listening && !isSpeaking()) startListening(); }, 1500);
