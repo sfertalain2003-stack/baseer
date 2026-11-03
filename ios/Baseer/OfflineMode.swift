@@ -416,12 +416,20 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         UIAccessibility.post(notification: .layoutChanged, argument: resultLabel)
     }
 
+    /// The most natural-sounding voice installed on this iPhone (Premium or Enhanced when downloaded).
+    private lazy var bestVoice: AVSpeechSynthesisVoice? = {
+        let prefix = isArabic ? "ar" : "en"
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix(prefix) }
+        return voices.max { $0.quality.rawValue < $1.quality.rawValue }
+            ?? AVSpeechSynthesisVoice(language: isArabic ? "ar-SA" : "en-US")
+    }()
+
     private func say(_ text: String, queue: Bool = false) {
         stopListening()
         if !queue { synthesizer.stopSpeaking(at: .immediate) }
         lastSpoken = text
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: isArabic ? "ar-SA" : "en-US")
+        utterance.voice = bestVoice
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
         synthesizer.speak(utterance)
     }

@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "20";
+const BASEER_VERSION = "21";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -23,8 +23,12 @@ const BASEER_VERSION = "20";
     elevenKey: store.get("elevenKey", ""),
     elevenVoiceId: store.get("elevenVoiceId", ""),
     elevenVoices: store.get("elevenVoices", []),   // [{ id, name }]
-    geminiKey: store.get("geminiKey", "")          // free key from aistudio.google.com
+    geminiKey: store.get("geminiKey", ""),         // free key from aistudio.google.com
+    naturalVoice: store.get("naturalVoice", true),  // human-sounding Google voice when online
+    geminiVoice: store.get("geminiVoice", "Sulafat")
   };
+  // Human-sounding Google voices to choose from by saying "change the voice".
+  const NATURAL_VOICES = ["Sulafat", "Kore", "Achird", "Aoede", "Charon", "Puck"];
   // Free mode: Google Gemini hears the voice and sees the photo. Otherwise Claude (paid key).
   // Baseer's shared free server: holds the Gemini key so nobody needs their own.
   const SHARED_SERVER = "https://lqpowhbcooulrsyotpzx.supabase.co/functions/v1/baseer";
@@ -367,8 +371,16 @@ const BASEER_VERSION = "20";
       stopListening();
       return elevenSpeak(text, queue);
     }
+    // Human-sounding Google voice whenever there is internet. Short instant cues ("one moment") use it
+    // only once it has been fetched before, so Baseer never waits to say them.
+    const natural = useGemini() && settings.naturalVoice !== false && !phoneOnly && navigator.onLine !== false;
+    if (natural && (text.length > 14 || ttsCache.has(text))) {
+      stopListening();
+      return elevenSpeak(text, queue, fetchGeminiAudio);
+    }
+    if (natural) fetchGeminiAudio(text).catch(() => {}); // ready for next time
     // Free Google voice: used when Safari won't let the phone voice talk (no touch yet), or there is no phone voice.
-    if (useGemini() && (synthBlocked || !synth)) {
+    if (useGemini() && !phoneOnly && (synthBlocked || !synth)) {
       stopListening();
       return elevenSpeak(text, queue, fetchGeminiAudio);
     }
@@ -400,18 +412,31 @@ const BASEER_VERSION = "20";
       }, 1000);
     }
   }
-  let synthBlocked = false, touchedOnce = false;
+  let synthBlocked = false, touchedOnce = false, phoneOnly = false;
+  const ttsCache = new Map(); // short sentences said often (e.g. "one moment") -> audio
   document.addEventListener("pointerdown", () => { touchedOnce = true; synthBlocked = false; }, { capture: true });
 
   /** Free natural voice from Google (Gemini text-to-speech), returned as a WAV the page can play. */
   async function fetchGeminiAudio(text) {
+    if (ttsCache.has(text)) return ttsCache.get(text);
+    const blob = await fetchGeminiAudioNow(text);
+    if (text.length <= 80) ttsCache.set(text, blob);
+    return blob;
+  }
+  async function fetchGeminiAudioNow(text) {
     const ep = geminiEndpoint("gemini-3.8-flash-lite-tts", false);
+    // Google is sometimes very slow: after 6 seconds give up, and the phone voice says it instead.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    try { return await fetchGeminiAudioWith(ep, text, ctl.signal); } finally { clearTimeout(timer); }
+  }
+  async function fetchGeminiAudioWith(ep, text, signal) {
     const res = await fetch(ep.url, {
-      method: "POST",
+      method: "POST", signal,
       headers: ep.headers,
       body: JSON.stringify({
         contents: [{ parts: [{ text }] }],
-        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }
+        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.geminiVoice || "Sulafat" } } } }
       })
     });
     if (!res.ok) throw new Error(String(res.status));
@@ -498,7 +523,8 @@ const BASEER_VERSION = "20";
         if (fetcher !== fetchElevenAudio) { // Google voice failed: try the phone voice
           synthBlocked = false; elevenBusy = 0;
           const engine = settings.voiceEngine; settings.voiceEngine = "system";
-          speak(text, { queue: true });
+          phoneOnly = true;
+          try { speak(text, { queue: true }); } finally { phoneOnly = false; }
           settings.voiceEngine = engine;
           return;
         }
@@ -1465,6 +1491,17 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     speak(t().v.voiceSample(name, Math.max(1, i + 1), Math.max(1, voices.length)));
   }
   function nextVoice() {
+    if (settings.naturalVoice !== false && settings.voiceEngine !== "eleven" && navigator.onLine !== false) {
+      const i = NATURAL_VOICES.indexOf(settings.geminiVoice);
+      settings.geminiVoice = NATURAL_VOICES[(i + 1) % NATURAL_VOICES.length];
+      store.set("geminiVoice", settings.geminiVoice);
+      ttsCache.clear();
+      trialVoiceUntil = Date.now() + 20000;
+      const sample = t().v.voiceSample;
+      const n = NATURAL_VOICES.indexOf(settings.geminiVoice) + 1;
+      speak(typeof sample === "function" ? sample("", n, NATURAL_VOICES.length) : t().v.welcome);
+      return;
+    }
     const voices = voiceOptions();
     if (voices.length < 2) { speak(t().v.noVoices); return; }
     const i = voices.findIndex(v => v.id === currentVoiceId());
