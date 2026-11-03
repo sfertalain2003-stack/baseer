@@ -83,7 +83,9 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         let ink = UIColor(red: 0x2e / 255, green: 0x1f / 255, blue: 0x14 / 255, alpha: 1)
         let card = UIColor(red: 0xfb / 255, green: 0xf6 / 255, blue: 0xef / 255, alpha: 1)
 
-        statusLabel.text = s("بدون إنترنت · الوضع البسيط", "No internet · Simple mode")
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        statusLabel.text = s("بدون إنترنت · الوضع البسيط", "No internet · Simple mode") + "  ·  \(build)"
+        statusLabel.accessibilityLabel = s("بدون إنترنت، الوضع البسيط", "No internet, simple mode")
         statusLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         statusLabel.textColor = ink
         statusLabel.textAlignment = .center
@@ -294,9 +296,9 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
 
         // Always say something useful: at least the main colour in front of the camera.
         if parts.isEmpty {
-            return s("ما عرفت الشي بالضبط بدون إنترنت. ", "I can't tell exactly what it is without internet. ") + colors(frame)
+            return s("ما عرفت الشي بالضبط. ", "I can't tell exactly what it is. ") + colors(frame)
         }
-        return parts.joined(separator: ". ") + s(". هذا وصف بسيط بدون إنترنت.", ". This is a simple description without internet.")
+        return parts.joined(separator: ". ") + "."
     }
 
     private func position(of box: CGRect) -> String {
