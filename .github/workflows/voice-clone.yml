@@ -1,0 +1,58 @@
+name: Voice clone test (encrypted)
+
+on:
+  push:
+    branches: [voice-lab]
+    paths: [".github/workflows/voice-clone.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  clone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Make this machine's lock (its private key never leaves the machine)
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/runner.key" 3072 2>/dev/null
+          openssl rsa -in "$RUNNER_TEMP/runner.key" -pubout -out voice-lab/secure/runner.pub 2>/dev/null
+          git config user.name "baseer-voice-lab"
+          git config user.email "voice-lab@users.noreply.github.com"
+          git add voice-lab/secure/runner.pub
+          git commit -m "runner public key [skip ci]"
+          git push
+      - name: Install Chatterbox and check its license
+        run: |
+          pip install -q chatterbox-tts
+          pip show chatterbox-tts | grep -iE '^(name|version|license)'
+          curl -sSL https://huggingface.co/ResembleAI/chatterbox/raw/main/README.md | grep -iE 'license|mit|watermark|language' | head -20 || true
+      - name: Wait for the encrypted reference voice
+        run: |
+          for i in $(seq 1 90); do
+            git pull -q
+            if [ -f voice-lab/secure/ref.enc ] && [ -f voice-lab/secure/ref.key.enc ]; then echo "received"; exit 0; fi
+            sleep 10
+          done
+          echo "no reference arrived"; exit 1
+      - name: Unlock the reference (only inside this machine)
+        run: |
+          openssl pkeyutl -decrypt -inkey "$RUNNER_TEMP/runner.key" -in voice-lab/secure/ref.key.enc -out "$RUNNER_TEMP/ref.pass"
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass file:"$RUNNER_TEMP/ref.pass" -in voice-lab/secure/ref.enc -out "$RUNNER_TEMP/ref.wav"
+      - name: Make the cloned samples
+        run: python voice-lab/clone_samples.py "$RUNNER_TEMP/ref.wav" "$RUNNER_TEMP/out"
+      - name: Lock the results for Claude and remove the reference
+        run: |
+          openssl rand -hex 32 > "$RUNNER_TEMP/out.pass"
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/out.tgz" out
+          openssl enc -aes-256-cbc -pbkdf2 -pass file:"$RUNNER_TEMP/out.pass" -in "$RUNNER_TEMP/out.tgz" -out voice-lab/secure/results.enc
+          openssl pkeyutl -encrypt -pubin -inkey voice-lab/secure/claude.pub -in "$RUNNER_TEMP/out.pass" -out voice-lab/secure/results.key.enc
+          git rm -q voice-lab/secure/ref.enc voice-lab/secure/ref.key.enc voice-lab/secure/runner.pub
+          git add voice-lab/secure/results.enc voice-lab/secure/results.key.enc
+          git commit -m "encrypted clone results [skip ci]"
+          git push
+          rm -f "$RUNNER_TEMP/ref.wav" "$RUNNER_TEMP/ref.pass" "$RUNNER_TEMP/runner.key"
