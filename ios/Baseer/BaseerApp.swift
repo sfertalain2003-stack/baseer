@@ -132,6 +132,12 @@ final class BaseerViewController: UIViewController, WKUIDelegate, WKNavigationDe
                 if !lang.isEmpty { UserDefaults.standard.set(lang, forKey: "baseerLang") }
             }
         }
+        // Keep the chosen speech speed for the offline mode too.
+        webView.evaluateJavaScript("localStorage.getItem('speedLevel')") { value, _ in
+            if let raw = value as? String, let level = Int(raw) {
+                UserDefaults.standard.set(level, forKey: "baseerSpeedLevel")
+            }
+        }
     }
 
     // Camera and microphone: the person already said yes to the iPhone prompt, so don't ask again.

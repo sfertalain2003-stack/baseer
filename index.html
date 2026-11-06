@@ -229,10 +229,13 @@
       <select id="voiceSelect"></select>
       <label for="rateSelect" data-t="rateLabel">سرعة الكلام</label>
       <select id="rateSelect">
-        <option value="0.8" data-t="rateSlow">بطيء</option>
-        <option value="1" data-t="rateNormal">عادي</option>
-        <option value="1.2" data-t="rateFast">سريع</option>
-        <option value="1.4" data-t="rateFaster">أسرع</option>
+        <option value="-3">أبطأ ٣ ‹‹‹</option>
+        <option value="-2">أبطأ ٢ ‹‹</option>
+        <option value="-1">أبطأ ١ ‹</option>
+        <option value="0" data-t="rateNormal">عادي</option>
+        <option value="1">أسرع ١ ›</option>
+        <option value="2">أسرع ٢ ››</option>
+        <option value="3">أسرع ٣ ›››</option>
       </select>
       <button class="primary" id="testVoice" type="button" data-t="testVoice">اسمع الصوت</button>
       <small data-t="voiceHelp"></small>
@@ -266,6 +269,6 @@
   </nav>
 </div>
 
-<script src="app.js?v=22"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>

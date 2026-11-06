@@ -432,7 +432,7 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         lastSpoken = text
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = bestVoice
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * Self.rateFactor(speedLevel)
         synthesizer.speak(utterance)
     }
 
@@ -527,10 +527,34 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         recognitionTask = nil
     }
 
-    private enum Command { case task(Job), repeatLast, stop }
+    private enum Command { case task(Job), repeatLast, stop, speed(level: Int?, steps: Int) }
+
+    // Same seven speeds as the online Baseer: -3 … 0 (normal) … +3. Shared with it through UserDefaults.
+    private var speedLevel: Int {
+        get { UserDefaults.standard.integer(forKey: "baseerSpeedLevel") }
+        set { UserDefaults.standard.set(max(-3, min(3, newValue)), forKey: "baseerSpeedLevel") }
+    }
+    static func rateFactor(_ level: Int) -> Float {
+        [-3: 0.6, -2: 0.7, -1: 0.82, 0: 0.95, 1: 1.08, 2: 1.2, 3: 1.35][max(-3, min(3, level))] ?? 0.95
+    }
+
+    private func speedCommand(_ text: String) -> Command? {
+        if ["السرعه العاديه", "سرعه عاديه", "normal speed"].contains(where: text.contains) { return .speed(level: 0, steps: 0) }
+        let faster = ["اسرع", "كن سريع", "faster"].contains(where: text.contains)
+        let slower = ["ابطا", "بطيء", "بطي", "بشويش", "slower"].contains(where: text.contains)
+        guard faster || slower else { return nil }
+        let sign = slower && !faster ? -1 : 1
+        if ["اسرع شي", "اقصى سرعه", "fastest"].contains(where: text.contains) { return .speed(level: 3, steps: 0) }
+        if ["ابطا شي", "اقل سرعه", "slowest"].contains(where: text.contains) { return .speed(level: -3, steps: 0) }
+        if ["درجه واحده", "درجه وحده", "١"].contains(where: text.contains) { return .speed(level: sign, steps: 0) }
+        if ["درجتين", "اثنين", "٢"].contains(where: text.contains) { return .speed(level: 2 * sign, steps: 0) }
+        if ["ثلاث", "٣"].contains(where: text.contains) { return .speed(level: 3 * sign, steps: 0) }
+        return .speed(level: nil, steps: sign)
+    }
 
     private func command(in raw: String) -> Command? {
         let text = Self.normalize(raw)
+        if text.split(separator: " ").count <= 6, let speed = speedCommand(text) { return speed }
         if ["وقف", "اسكت", "stop", "quiet"].contains(where: text.contains) { return .stop }
         if ["عيد", "كرر", "repeat", "again"].contains(where: text.contains) { return .repeatLast }
         if ["اقر", "مكتوب", "read"].contains(where: text.contains) { return .task(.read) }
@@ -547,6 +571,16 @@ final class OfflineViewController: UIViewController, AVCaptureVideoDataOutputSam
         case .stop:
             synthesizer.stopSpeaking(at: .immediate)
             startListening()
+        case .speed(let level, let steps):
+            let before = speedLevel
+            speedLevel = level ?? (before + steps)
+            let now = speedLevel
+            if now == before && now == 3 { say(s("هذي أسرع سرعة عندي.", "This is my fastest speed.")); return }
+            if now == before && now == -3 { say(s("هذي أبطأ سرعة عندي.", "This is my slowest speed.")); return }
+            if now == 0 { say(s("السرعة الحين عادية.", "Normal speed now.")); return }
+            let words = ["", "بدرجة وحدة", "بدرجتين", "بثلاث درجات"][abs(now)]
+            say(s("السرعة الحين: \(now > 0 ? "أسرع" : "أبطأ") من العادي \(words).",
+                  "Speed now: \(abs(now)) step\(abs(now) > 1 ? "s" : "") \(now > 0 ? "faster" : "slower") than normal."))
         }
     }
 

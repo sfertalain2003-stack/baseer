@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "22";
+const BASEER_VERSION = "24";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -19,6 +19,7 @@ const BASEER_VERSION = "22";
     handsFree: true, // always listening: a blind user can't find a switch, so it never turns itself off
     voiceName: store.get("voiceName", ""),   // chosen by the user; empty = best available
     rate: store.get("rate", 0.9), // a little slower is easier to follow
+    speedLevel: store.get("speedLevel", 0), // -3 (slowest) … 0 (normal) … +3 (fastest)
     voiceEngine: store.get("voiceEngine", "system"), // "system" (free) or "eleven" (natural, every language)
     elevenKey: store.get("elevenKey", ""),
     elevenVoiceId: store.get("elevenVoiceId", ""),
@@ -113,6 +114,8 @@ const BASEER_VERSION = "22";
         voiceSample: (n, i, total) => `هذا صوت رقم ${i} من ${total}${n ? "، اسمه " + n : ""}. إذا عجبك قل: بصير، خلاص. وإذا تبي غيره قل: بصير، غيّر الصوت.`,
         voiceKept: "تمام، بخلي هذا الصوت.", noVoices: "ما لقيت أصوات ثانية على هذا الجوال. تقدر تنزل أصوات من إعدادات الجوال.",
         faster: "صرت أتكلم أسرع.", slower: "صرت أتكلم أبطأ.",
+        speedNow: (l) => l === 0 ? "السرعة الحين عادية." : `السرعة الحين: ${l > 0 ? "أسرع" : "أبطأ"} من العادي ${["", "بدرجة وحدة", "بدرجتين", "بثلاث درجات"][Math.abs(l)]}.`,
+        speedMax: "هذي أسرع سرعة عندي.", speedMin: "هذي أبطأ سرعة عندي.",
         translating: "لحظة، أجهز اللغة الجديدة.", langReady: "صرت أتكلم العربي.",
         voicesLoaded: "حملت الأصوات. اختار صوت من القائمة، أو قل: بصير، غيّر الصوت.", elevenFailed: "ما قدرت أستخدم صوت ElevenLabs، فرجعت لصوت الجوال. تأكد من المفتاح.",
         needElevenKey: "حط مفتاح ElevenLabs أول.",
@@ -178,6 +181,8 @@ const BASEER_VERSION = "22";
         voiceSample: (n, i, total) => `This is voice ${i} of ${total}${n ? ", called " + n : ""}. If you like it, say: Baseer, keep it. For another, say: Baseer, change voice.`,
         voiceKept: "OK, I'll keep this voice.", noVoices: "There are no other voices on this phone. You can download more in your phone's settings.",
         faster: "I'm speaking faster now.", slower: "I'm speaking slower now.",
+        speedNow: (l) => l === 0 ? "Normal speed now." : `Speed now: ${Math.abs(l)} step${Math.abs(l) > 1 ? "s" : ""} ${l > 0 ? "faster" : "slower"} than normal.`,
+        speedMax: "This is my fastest speed.", speedMin: "This is my slowest speed.",
         translating: "One moment, getting the new language ready.", langReady: "I'm speaking English now.",
         voicesLoaded: "Voices loaded. Pick one from the list, or say: Baseer, change voice.", elevenFailed: "I couldn't use the ElevenLabs voice, so I switched back to the phone voice. Check the key.",
         needElevenKey: "Enter your ElevenLabs key first.",
@@ -1192,9 +1197,28 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   ];
   const INSTANT = new Set(["nextVoice", "faster", "slower", "read", "translate", "money", "color", "repeat", "where", "walkStart", "walkStop"]);
 
+  /** «أسرع» / «أسرع درجتين» / «كن بطيء» / «أبطأ ثلاث درجات» / «السرعة العادية» / «أسرع شي». */
+  function parseSpeed(text) {
+    const faster = /(اسرع|كن سريع|faster|speed up)/.test(text);
+    const slower = /(ابطا|ابطي|بطيء|بطي|بشويش|على راحتك|هدي السرعه|slower|slow down)/.test(text);
+    const normal = /(السرعه العاديه|سرعه عاديه|رجع السرعه|normal speed)/.test(text);
+    if (normal) return { type: "speed", level: 0 };
+    if (!faster && !slower) return null;
+    if (/(اسرع شي|اقصى سرعه|اسرع سرعه|fastest)/.test(text)) return { type: "speed", level: 3 };
+    if (/(ابطا شي|ابطا سرعه|اقل سرعه|slowest)/.test(text)) return { type: "speed", level: -3 };
+    // With a number it is the level itself («أسرع درجتين» = 2 above normal); alone, one step from where it is.
+    const sign = slower && !faster ? -1 : 1;
+    if (/(درجه وحده|درجه واحده|one step|\b1\b|١)/.test(text)) return { type: "speed", level: sign };
+    if (/(درجتين|مرتين|اثنين|two|\b2\b|٢)/.test(text)) return { type: "speed", level: 2 * sign };
+    if (/(ثلاث|three|\b3\b|٣)/.test(text)) return { type: "speed", level: 3 * sign };
+    return { type: "speed", steps: sign };
+  }
+
   function parse(raw) {
     const text = normalize(raw);
     if (!text) return null;
+    const speed = text.split(" ").length <= 6 ? parseSpeed(text) : null; // short commands only
+    if (speed) return speed;
     if (/(استغاثه|نجده|طوارئ|الحقوني|emergency|\bsos\b)/.test(text) || text === "ساعدني" || text === "help") return { type: "sos" };
     let m = text.match(/(?:احفظ(?: هذا)? المكان(?: باسم)?|save this place(?: as)?)\s*(.*)$/);
     if (m) return { type: "save", name: m[1].trim() };
@@ -1239,6 +1263,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     switch (intent.type) {
       case "sos": return askSos();
       case "save": return savePlace(intent.name);
+      case "speed": return intent.level !== undefined ? setSpeedLevel(intent.level) : changeRate(intent.steps);
       case "go": return navigateTo(intent.place);
       case "question": return lookAndSay("ask", intent.text);
       case "cmd":
@@ -1254,8 +1279,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
           case "share": return sendLocation(false);
           case "nextVoice": return nextVoice();
           case "keepVoice": return speak(V.voiceKept);
-          case "faster": return changeRate(+0.2);
-          case "slower": return changeRate(-0.2);
+          case "faster": return changeRate(+1);
+          case "slower": return changeRate(-1);
           case "walkStart": return setWalking(true);
           case "walkStop": return setWalking(false);
         }
@@ -1523,12 +1548,21 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     trialVoiceUntil = Date.now() + 20000;
     sampleVoice();
   }
-  function changeRate(delta) {
-    settings.rate = Math.min(1.6, Math.max(0.6, Math.round(((Number(settings.rate) || 1) + delta) * 10) / 10));
-    store.set("rate", settings.rate);
-    $("rateSelect").value = String([0.8, 1, 1.2, 1.4].reduce((a, b) => Math.abs(b - settings.rate) < Math.abs(a - settings.rate) ? b : a));
-    speak(delta > 0 ? t().v.faster : t().v.slower);
+  // Seven speeds: three slower, normal, three faster.
+  const SPEED_RATES = { "-3": 0.55, "-2": 0.65, "-1": 0.75, "0": 0.9, "1": 1.05, "2": 1.2, "3": 1.4 };
+  function setSpeedLevel(level, { announce = true } = {}) {
+    const before = Number(settings.speedLevel) || 0;
+    level = Math.max(-3, Math.min(3, level));
+    settings.speedLevel = level;
+    settings.rate = SPEED_RATES[String(level)];
+    store.set("speedLevel", level); store.set("rate", settings.rate);
+    const sel = $("rateSelect"); if (sel) sel.value = String(level);
+    if (!announce) return;
+    const V = t().v;
+    if (level === before) speak(level === 3 ? V.speedMax : level === -3 ? V.speedMin : V.speedNow(level));
+    else speak(V.speedNow(level));
   }
+  function changeRate(steps) { setSpeedLevel((Number(settings.speedLevel) || 0) + steps); }
   function fillVoiceSelect() {
     const select = $("voiceSelect");
     select.textContent = "";
@@ -1672,6 +1706,8 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     e.preventDefault();
     const q = $("question").value.trim();
     $("question").value = "";
+    const intent = q ? parse(q) : null; // typed commands work too, e.g. «أسرع»
+    if (intent && intent.type !== "question") return run(intent);
     lookAndSay(q ? "ask" : "describe", q);
   });
   $("lastBtn").addEventListener("click", () => speak(lastReply || t().v.nothing));
@@ -1733,7 +1769,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
     settings.elevenKey = $("elevenKey").value.trim(); store.set("elevenKey", settings.elevenKey);
     loadElevenVoices();
   });
-  $("rateSelect").addEventListener("change", (e) => { settings.rate = Number(e.target.value); store.set("rate", settings.rate); sampleVoice(); });
+  $("rateSelect").addEventListener("change", (e) => setSpeedLevel(Number(e.target.value)));
   $("testVoice").addEventListener("click", sampleVoice);
   $("saveSettings").addEventListener("click", () => {
     settings.geminiKey = $("geminiKey").value.trim();
@@ -1776,7 +1812,7 @@ If there is no clear speech in the audio, write only: HEARD [-]:`;
   if (!["ar", "en"].includes(settings.lang)) loadTranslation(settings.lang);
   $("handsFreeToggle").checked = true;
   store.set("handsFree", true); // clears an old "off" saved by earlier versions
-  $("rateSelect").value = String(settings.rate);
+  setSpeedLevel(Number(settings.speedLevel) || 0, { announce: false });
   if (synth) { synth.getVoices(); synth.onvoiceschanged = fillVoiceSelect; }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && walking) requestWakeLock(); });
   applyLang();
