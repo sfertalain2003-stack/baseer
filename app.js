@@ -1,6 +1,6 @@
 // Baseer web app: live camera, voice commands, spoken replies, walking mode, places, SOS.
 // Runs entirely in the browser; the only paid part is the Anthropic API call per description.
-const BASEER_VERSION = "24";
+const BASEER_VERSION = "25";
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -25,7 +25,7 @@ const BASEER_VERSION = "24";
     elevenVoiceId: store.get("elevenVoiceId", ""),
     elevenVoices: store.get("elevenVoices", []),   // [{ id, name }]
     geminiKey: store.get("geminiKey", ""),         // free key from aistudio.google.com
-    naturalVoice: store.get("naturalVoice", true),  // human-sounding Google voice when online
+    naturalVoice: false, // phone voice (free). The Google voice used up the shared free allowance.
     geminiVoice: store.get("geminiVoice", "Sulafat")
   };
   // Human-sounding Google voices to choose from by saying "change the voice".
@@ -384,7 +384,7 @@ const BASEER_VERSION = "24";
       return elevenSpeak(text, queue, fetchGeminiAudio);
     }
     // Free Google voice: used when Safari won't let the phone voice talk (no touch yet), or there is no phone voice.
-    if (useGemini() && !phoneOnly && (synthBlocked || !synth)) {
+    if (useGemini() && !phoneOnly && !synth) {
       stopListening();
       return elevenSpeak(text, queue, fetchGeminiAudio);
     }
@@ -765,7 +765,9 @@ Give directions relative to the user: ahead, to your left, to your right, about 
 
   // ---------- Free AI: Google Gemini (hears and sees in one request) ----------
   // Lite answers in about 2 seconds; the bigger model is the backup when Google is busy.
-  const GEMINI_MODELS = ["gemini-flash-lite-latest", "gemini-flash-latest"];
+  // Shared server: "auto" lets the server spread requests over several free models (each has its own daily allowance).
+  const geminiModels = () => settings.geminiKey ? ["gemini-flash-lite-latest", "gemini-flash-latest"] : ["auto"];
+  const GEMINI_MODELS = geminiModels();
 
   /** Streams a Gemini reply. parts: Gemini content parts (image, audio, text). */
   async function geminiStream(parts, { onText = null, signal, maxTokens = 1500 } = {}) {
@@ -816,7 +818,8 @@ Give directions relative to the user: ahead, to your left, to your right, about 
       return winner.r;
     };
     for (const model of GEMINI_MODELS) {
-      res = model === GEMINI_MODELS[0] ? await raced(model) : await attempt(model, true);
+      // One request only (no duplicate "backup" request): every request counts against the free allowance.
+      res = await attempt(model, true);
       if (res.status === 400) res = await attempt(model, false); // model without the fast setting
       if (res.ok) break;
       lastStatus = res.status;

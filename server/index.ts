@@ -11,10 +11,24 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 // Only Baseer's own site may use this server, and only these models.
 const ALLOWED_ORIGINS = ["https://sfertalain2003-stack.github.io"];
 const ALLOWED_MODELS = new Set([
+  "auto",
   "gemini-flash-lite-latest",
   "gemini-flash-latest",
   "gemini-3.8-flash-lite-tts",
 ]);
+// Google's free tier allows a fixed number of requests per day for EACH model.
+// "auto" tries these in order and skips the ones that are used up, so the free allowance is many times larger.
+const AUTO_MODELS = [
+  "gemini-3.1-flash-lite",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3-flash-preview",
+  "gemini-3.7-flash",
+];
+const exhaustedUntil = new Map<string, number>(); // model -> time it may work again
 const MAX_BODY_BYTES = 6_000_000; // a photo plus a few seconds of voice
 // Per hour. Walking mode sends about one photo every 3 seconds (~1200 an hour).
 const DEVICE_LIMIT = 1500;
@@ -87,15 +101,43 @@ Deno.serve(async (req) => {
   const stream = mode === "stream";
   if (!ALLOWED_MODELS.has(model)) return new Response("Model not allowed", { status: 400, headers: cors(origin) });
 
-  const target = `https://generativelanguage.googleapis.com/v1beta/models/${model}:` +
-    (stream ? "streamGenerateContent?alt=sse" : "generateContent");
-  const upstream = await fetch(target, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_KEY },
-    body: req.body,
-    // @ts-ignore Deno supports streaming request bodies
-    duplex: "half",
-  });
+  const call = (m: string, body: BodyInit) => fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${m}:` + (stream ? "streamGenerateContent?alt=sse" : "generateContent"),
+    { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_KEY }, body },
+  );
+
+  let upstream: Response;
+  if (model !== "auto") {
+    upstream = await call(model, await req.arrayBuffer());
+  } else {
+    const raw = await req.text();
+    let slim: string | null = null; // same request without the "think less" setting, for models that refuse it
+    upstream = new Response("All free models are busy", { status: 429 });
+    for (const m of AUTO_MODELS) {
+      if ((exhaustedUntil.get(m) ?? 0) > Date.now()) continue;
+      let r = await call(m, raw);
+      if (r.status === 400) {
+        if (slim === null) {
+          try { const j = JSON.parse(raw); if (j.generationConfig) delete j.generationConfig.thinkingConfig; slim = JSON.stringify(j); } catch { slim = raw; }
+        }
+        await r.body?.cancel();
+        r = await call(m, slim);
+      }
+      if (r.status === 429) {
+        const text = await r.text();
+        // A daily limit waits until the next day; a per-minute limit only a minute.
+        exhaustedUntil.set(m, Date.now() + (/per day|PerDay/i.test(text) ? 3 * 3600_000 : 60_000));
+        continue;
+      }
+      if (r.status === 404 || r.status === 503 || r.status >= 500) {
+        await r.body?.cancel();
+        exhaustedUntil.set(m, Date.now() + (r.status === 404 ? 24 * 3600_000 : 30_000));
+        continue;
+      }
+      upstream = r;
+      break;
+    }
+  }
 
   const headers = new Headers(cors(origin));
   headers.set("content-type", upstream.headers.get("content-type") ?? "application/json");
