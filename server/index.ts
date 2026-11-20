@@ -97,7 +97,9 @@ Deno.serve(async (req) => {
   if (length > MAX_BODY_BYTES) return new Response("Too large", { status: 413, headers: cors(origin) });
 
   // ?model=...&mode=stream|once
-  const model = url.searchParams.get("model") ?? "";
+  let model = url.searchParams.get("model") ?? "";
+  // Older copies of the app still ask for these two models, whose free allowance runs out: treat them as "auto" too.
+  if (model === "gemini-flash-lite-latest" || model === "gemini-flash-latest") model = "auto";
   const stream = mode === "stream";
   if (!ALLOWED_MODELS.has(model)) return new Response("Model not allowed", { status: 400, headers: cors(origin) });
 
